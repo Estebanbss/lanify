@@ -1,9 +1,13 @@
+import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:io';
+import 'dart:convert';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:audioplayers/audioplayers.dart';
+import 'package:audioplayers/audioplayers.dart' hide AVAudioSessionCategory;
+import 'package:audio_session/audio_session.dart';
+import 'package:file_picker/file_picker.dart';
 
 void main() {
   runApp(const MyApp());
@@ -47,6 +51,9 @@ class _AudioFileExplorerState extends State<AudioFileExplorer> {
   int currentTrackIndex = -1;
   List<File> currentPlaylist = [];
 
+  // Audio Session para controles de medios
+  AudioSession? audioSession;
+
   // Extensiones de audio soportadas
   final Set<String> audioExtensions = {
     '.mp3',
@@ -64,8 +71,112 @@ class _AudioFileExplorerState extends State<AudioFileExplorer> {
   @override
   void initState() {
     super.initState();
+    _initializeAudioSession();
     _initializeAudioPlayer();
     _requestPermissions();
+  }
+
+  Future<void> _initializeAudioSession() async {
+    try {
+      audioSession = await AudioSession.instance;
+
+      // Configurar la sesión de audio para música con controles de medios
+      await audioSession!.configure(
+        AudioSessionConfiguration(
+          avAudioSessionCategory: AVAudioSessionCategory.playback,
+          avAudioSessionCategoryOptions: AVAudioSessionCategoryOptions.none,
+          avAudioSessionMode: AVAudioSessionMode.defaultMode,
+          avAudioSessionRouteSharingPolicy:
+              AVAudioSessionRouteSharingPolicy.defaultPolicy,
+          avAudioSessionSetActiveOptions: AVAudioSessionSetActiveOptions.none,
+          androidAudioAttributes: const AndroidAudioAttributes(
+            contentType: AndroidAudioContentType.music,
+            flags: AndroidAudioFlags.none,
+            usage: AndroidAudioUsage.media,
+          ),
+          androidAudioFocusGainType: AndroidAudioFocusGainType.gain,
+          androidWillPauseWhenDucked: true,
+        ),
+      );
+
+      // Configurar controles de medios
+      await _setupMediaControls();
+
+      // Escuchar eventos de botones de auriculares y controles de medios
+      await audioSession!.setActive(true);
+
+      // Manejar interrupciones de audio
+      audioSession!.interruptionEventStream.listen((event) {
+        if (event.begin) {
+          switch (event.type) {
+            case AudioInterruptionType.duck:
+              // Reducir volumen
+              _audioPlayer.setVolume(0.3);
+              break;
+            case AudioInterruptionType.pause:
+            case AudioInterruptionType.unknown:
+              // Pausar reproducción
+              if (isPlaying) {
+                _pauseResume();
+              }
+              break;
+          }
+        } else {
+          switch (event.type) {
+            case AudioInterruptionType.duck:
+              // Restaurar volumen
+              _audioPlayer.setVolume(1.0);
+              break;
+            case AudioInterruptionType.pause:
+              // Reanudar si estaba pausado por interrupción
+              break;
+            case AudioInterruptionType.unknown:
+              break;
+          }
+        }
+      });
+
+      // Manejar eventos de botones de auriculares
+      audioSession!.becomingNoisyEventStream.listen((_) {
+        // Pausar cuando se desconectan los auriculares
+        if (isPlaying) {
+          _pauseResume();
+        }
+      });
+    } catch (e) {
+      debugPrint('Error inicializando audio session: $e');
+    }
+  }
+
+  Future<void> _setupMediaControls() async {
+    try {
+      // Configurar controles de medios para Android/iOS
+      if (Platform.isAndroid || Platform.isIOS) {
+        // Establecer metadatos de medios
+        await audioSession!.setActive(true);
+
+        // Para Android, necesitarías usar un plugin como audio_service
+        // Por ahora configuramos lo básico con audio_session
+
+        // Escuchar eventos de controles de medios del sistema
+        audioSession!.interruptionEventStream.listen((event) {
+          // Manejar controles desde notificaciones y auriculares
+          _handleMediaControlEvent(event);
+        });
+      }
+    } catch (e) {
+      debugPrint('Error configurando controles de medios: $e');
+    }
+  }
+
+  void _handleMediaControlEvent(AudioInterruptionEvent event) {
+    // Esta función manejaría los eventos de controles de medios
+    // Para una implementación completa necesitarías audio_service
+    if (event.begin) {
+      if (event.type == AudioInterruptionType.pause) {
+        _pauseResume();
+      }
+    }
   }
 
   void _initializeAudioPlayer() {
@@ -74,6 +185,9 @@ class _AudioFileExplorerState extends State<AudioFileExplorer> {
         isPlaying = state == PlayerState.playing;
         isPaused = state == PlayerState.paused;
       });
+
+      // Actualizar estado en la sesión de audio
+      _updateMediaSessionState();
     });
 
     _audioPlayer.onPositionChanged.listen((Duration position) {
@@ -93,25 +207,147 @@ class _AudioFileExplorerState extends State<AudioFileExplorer> {
     });
   }
 
+  Future<void> _updateMediaSessionState() async {
+    try {
+      if (audioSession != null && currentlyPlaying != null) {
+        // Actualizar información de la canción actual
+        // Para una implementación completa, usarías audio_service aquí
+        await audioSession!.setActive(isPlaying);
+      }
+    } catch (e) {
+      debugPrint('Error actualizando estado de medios: $e');
+    }
+  }
+
   @override
   void dispose() {
+    audioSession?.setActive(false);
     _audioPlayer.dispose();
     super.dispose();
   }
 
   Future<void> _requestPermissions() async {
     if (Platform.isAndroid) {
-      if (await Permission.storage.isDenied) {
-        await Permission.storage.request();
+      // Lista de permisos según la versión de Android
+      List<Permission> permissionsToRequest = [];
+
+      // Para Android 13+ (API 33+)
+      if (await _isAndroid13OrHigher()) {
+        permissionsToRequest.addAll([
+          Permission.audio, // Para archivos de audio
+          Permission.notification, // Para notificaciones de reproductor
+        ]);
+      } else {
+        // Para versiones anteriores a Android 13
+        permissionsToRequest.addAll([
+          Permission.storage,
+          Permission.manageExternalStorage,
+        ]);
       }
-      if (await Permission.manageExternalStorage.isDenied) {
-        await Permission.manageExternalStorage.request();
-      }
-      if (await Permission.audio.isDenied) {
-        await Permission.audio.request();
+
+      // Solicitar permisos
+      Map<Permission, PermissionStatus> permissions = await permissionsToRequest
+          .request();
+
+      // Verificar si todos los permisos fueron concedidos
+      bool allGranted = permissions.values.every(
+        (status) =>
+            status == PermissionStatus.granted ||
+            status == PermissionStatus.limited,
+      );
+
+      if (!allGranted) {
+        // Mostrar información específica sobre permisos faltantes
+        List<String> deniedPermissions = [];
+        permissions.forEach((permission, status) {
+          if (status != PermissionStatus.granted &&
+              status != PermissionStatus.limited) {
+            switch (permission) {
+              case Permission.audio:
+                deniedPermissions.add('Acceso a archivos de audio');
+                break;
+              case Permission.storage:
+                deniedPermissions.add('Acceso al almacenamiento');
+                break;
+              case Permission.manageExternalStorage:
+                deniedPermissions.add('Administrar almacenamiento externo');
+                break;
+              case Permission.notification:
+                deniedPermissions.add('Mostrar notificaciones');
+                break;
+              default:
+                deniedPermissions.add('Permiso desconocido');
+            }
+          }
+        });
+
+        if (deniedPermissions.isNotEmpty) {
+          _showPermissionDialog(deniedPermissions);
+        }
       }
     }
     _loadDefaultDirectory();
+  }
+
+  // Función auxiliar para verificar si es Android 13+
+  Future<bool> _isAndroid13OrHigher() async {
+    if (Platform.isAndroid) {
+      var androidInfo = await DeviceInfoPlugin().androidInfo;
+      return androidInfo.version.sdkInt >= 33;
+    }
+    return false;
+  }
+
+  // Mostrar diálogo explicativo sobre permisos
+  void _showPermissionDialog(List<String> deniedPermissions) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Permisos necesarios'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'La aplicación necesita los siguientes permisos para funcionar correctamente:',
+              ),
+              const SizedBox(height: 8),
+              ...deniedPermissions.map(
+                (permission) => Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 2),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.circle, size: 6),
+                      const SizedBox(width: 8),
+                      Expanded(child: Text(permission)),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Puedes otorgar estos permisos desde la configuración de la aplicación.',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Entendido'),
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                openAppSettings(); // Abre la configuración de la app
+              },
+              child: const Text('Ir a configuración'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   Future<void> _loadDefaultDirectory() async {
@@ -231,11 +467,17 @@ class _AudioFileExplorerState extends State<AudioFileExplorer> {
   // Funciones del reproductor
   Future<void> _playAudio(File audioFile) async {
     try {
+      // Activar la sesión de audio
+      await audioSession?.setActive(true);
+
       currentTrackIndex = currentPlaylist.indexOf(audioFile);
       await _audioPlayer.play(DeviceFileSource(audioFile.path));
       setState(() {
         currentlyPlaying = _getFileName(audioFile.path);
       });
+
+      // Actualizar controles de medios
+      _updateMediaSessionState();
     } catch (e) {
       _showError('Error al reproducir: $e');
     }
@@ -247,6 +489,9 @@ class _AudioFileExplorerState extends State<AudioFileExplorer> {
     } else if (isPaused) {
       await _audioPlayer.resume();
     }
+
+    // Actualizar controles de medios
+    _updateMediaSessionState();
   }
 
   Future<void> _stop() async {
@@ -257,6 +502,8 @@ class _AudioFileExplorerState extends State<AudioFileExplorer> {
       totalDuration = Duration.zero;
       currentTrackIndex = -1;
     });
+    // Desactivar la sesión de audio cuando se detiene
+    await audioSession?.setActive(false);
   }
 
   Future<void> _playNext() async {
@@ -286,97 +533,139 @@ class _AudioFileExplorerState extends State<AudioFileExplorer> {
     await _audioPlayer.seek(position);
   }
 
-  void _showDirectorySelector() {
-    List<DirectoryOption> options = [];
+  // Funciones para selección de directorio con fallback para Linux
+  Future<void> _selectDirectoryNative() async {
+    try {
+      String? selectedDirectory;
+      if (Platform.isLinux) {
+        selectedDirectory = await _pickDirectoryWithFallback();
+      } else {
+        selectedDirectory = await FilePicker.platform.getDirectoryPath();
+      }
 
-    if (Platform.isLinux) {
-      String home = Platform.environment['HOME'] ?? '/home';
-      options = [
-        DirectoryOption('Directorio Home', home, Icons.home),
-        DirectoryOption('Música', '$home/Music', Icons.music_note),
-        DirectoryOption('Descargas', '$home/Downloads', Icons.download),
-        DirectoryOption('Documentos', '$home/Documents', Icons.description),
-        DirectoryOption('Escritorio', '$home/Desktop', Icons.desktop_windows),
-        DirectoryOption('Videos', '$home/Videos', Icons.video_library),
-        DirectoryOption('Raíz del sistema', '/', Icons.folder),
-        DirectoryOption('Media', '/media', Icons.storage),
-        DirectoryOption('Mnt', '/mnt', Icons.storage),
-      ];
-    } else if (Platform.isWindows) {
-      String userProfile = Platform.environment['USERPROFILE'] ?? '';
-      options = [
-        DirectoryOption('Música', '$userProfile\\Music', Icons.music_note),
-        DirectoryOption('Descargas', '$userProfile\\Downloads', Icons.download),
-        DirectoryOption(
-          'Documentos',
-          '$userProfile\\Documents',
-          Icons.description,
-        ),
-        DirectoryOption(
-          'Escritorio',
-          '$userProfile\\Desktop',
-          Icons.desktop_windows,
-        ),
-        DirectoryOption('Videos', '$userProfile\\Videos', Icons.video_library),
-        DirectoryOption('Disco C:', 'C:\\', Icons.storage),
-        DirectoryOption('Disco D:', 'D:\\', Icons.storage),
-        DirectoryOption('Usuario', userProfile, Icons.person),
-      ];
-    } else if (Platform.isAndroid) {
-      options = [
-        DirectoryOption(
-          'Música',
-          '/storage/emulated/0/Music',
-          Icons.music_note,
-        ),
-        DirectoryOption(
-          'Descargas',
-          '/storage/emulated/0/Download',
-          Icons.download,
-        ),
-        DirectoryOption('DCIM', '/storage/emulated/0/DCIM', Icons.camera_alt),
-        DirectoryOption(
-          'Documentos',
-          '/storage/emulated/0/Documents',
-          Icons.description,
-        ),
-        DirectoryOption(
-          'Almacenamiento interno',
-          '/storage/emulated/0/',
-          Icons.storage,
-        ),
-        DirectoryOption('Tarjeta SD', '/storage/sdcard1/', Icons.sd_card),
-      ];
+      if (selectedDirectory != null) {
+        await _loadDirectoryContents(selectedDirectory);
+      }
+    } catch (e) {
+      _showError('Error al seleccionar directorio: $e');
+    }
+  }
+
+  Future<String?> _pickDirectoryWithFallback() async {
+    final tools = ['zenity', 'kdialog', 'dialog', 'whiptail'];
+
+    for (final tool in tools) {
+      try {
+        final result = await Process.run('which', [tool]);
+        if ((result.stdout as String).trim().isNotEmpty) {
+          final selectedPath = await _pickWithTool(tool);
+          if (selectedPath != null) {
+            return selectedPath;
+          }
+        }
+      } catch (e) {
+        debugPrint('Error verificando herramienta $tool: $e');
+        continue;
+      }
     }
 
-    showDialog(
+    // Si no hay herramientas disponibles, mostrar diálogo manual
+    return await _showManualPathDialog();
+  }
+
+  Future<String?> _pickWithTool(String tool) async {
+    try {
+      ProcessResult result;
+
+      switch (tool) {
+        case 'zenity':
+          result = await Process.run('zenity', [
+            '--file-selection',
+            '--directory',
+            '--title=Selecciona una carpeta de música',
+          ]);
+          if (result.exitCode == 0) {
+            return (result.stdout as String).trim();
+          }
+          break;
+
+        case 'kdialog':
+          result = await Process.run('kdialog', [
+            '--getexistingdirectory',
+            Platform.environment['HOME'] ?? '.',
+            '--title',
+            'Selecciona una carpeta de música',
+          ]);
+          if (result.exitCode == 0) {
+            return (result.stdout as String).trim();
+          }
+          break;
+
+        case 'dialog':
+        case 'whiptail':
+          // Para dialog y whiptail, usamos inputbox
+          result = await Process.run(tool, [
+            '--inputbox',
+            'Escribe el path del directorio:',
+            '10',
+            '50',
+            Platform.environment['HOME'] ?? '.',
+          ], stdoutEncoding: utf8);
+
+          if (result.exitCode == 0) {
+            final path = (result.stdout as String).trim();
+            if (path.isNotEmpty && await Directory(path).exists()) {
+              return path;
+            }
+          }
+          break;
+      }
+    } catch (e) {
+      debugPrint('Error usando herramienta $tool: $e');
+    }
+
+    return null;
+  }
+
+  Future<String?> _showManualPathDialog() async {
+    TextEditingController pathController = TextEditingController(
+      text: Platform.environment['HOME'] ?? '',
+    );
+
+    return await showDialog<String>(
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
           title: const Text('Seleccionar directorio'),
-          content: SizedBox(
-            width: double.maxFinite,
-            height: 400,
-            child: ListView.builder(
-              itemCount: options.length,
-              itemBuilder: (context, index) {
-                final option = options[index];
-                return ListTile(
-                  leading: Icon(option.icon),
-                  title: Text(option.name),
-                  subtitle: Text(option.path),
-                  onTap: () {
-                    Navigator.of(context).pop();
-                    _loadDirectoryContents(option.path);
-                  },
-                );
-              },
-            ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'No se encontraron herramientas de selección de archivos.\nEscribe la ruta del directorio manualmente:',
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: pathController,
+                decoration: const InputDecoration(
+                  labelText: 'Ruta del directorio',
+                  hintText: '/home/usuario/Music',
+                  border: OutlineInputBorder(),
+                ),
+                maxLines: 2,
+              ),
+            ],
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(),
               child: const Text('Cancelar'),
+            ),
+            TextButton(
+              onPressed: () {
+                String path = pathController.text.trim();
+                Navigator.of(context).pop(path.isNotEmpty ? path : null);
+              },
+              child: const Text('Seleccionar'),
             ),
           ],
         );
@@ -433,97 +722,6 @@ class _AudioFileExplorerState extends State<AudioFileExplorer> {
       Directory parent = Directory(currentPath).parent;
       await _loadDirectoryContents(parent.path);
     }
-  }
-
-  void _showQuickNavigation() {
-    showModalBottomSheet(
-      context: context,
-      builder: (BuildContext context) {
-        return Container(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Navegación rápida',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 16),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  _buildQuickNavButton(Icons.home, 'Home', () {
-                    Navigator.pop(context);
-                    if (Platform.isLinux) {
-                      _loadDirectoryContents(
-                        Platform.environment['HOME'] ?? '/',
-                      );
-                    } else if (Platform.isWindows) {
-                      _loadDirectoryContents(
-                        Platform.environment['USERPROFILE'] ?? 'C:\\',
-                      );
-                    } else if (Platform.isAndroid) {
-                      _loadDirectoryContents('/storage/emulated/0/');
-                    }
-                  }),
-                  _buildQuickNavButton(Icons.music_note, 'Música', () {
-                    Navigator.pop(context);
-                    if (Platform.isLinux) {
-                      String home = Platform.environment['HOME'] ?? '/';
-                      _loadDirectoryContents('$home/Music');
-                    } else if (Platform.isWindows) {
-                      String userProfile =
-                          Platform.environment['USERPROFILE'] ?? '';
-                      _loadDirectoryContents('$userProfile\\Music');
-                    } else if (Platform.isAndroid) {
-                      _loadDirectoryContents('/storage/emulated/0/Music');
-                    }
-                  }),
-                  _buildQuickNavButton(Icons.download, 'Descargas', () {
-                    Navigator.pop(context);
-                    if (Platform.isLinux) {
-                      String home = Platform.environment['HOME'] ?? '/';
-                      _loadDirectoryContents('$home/Downloads');
-                    } else if (Platform.isWindows) {
-                      String userProfile =
-                          Platform.environment['USERPROFILE'] ?? '';
-                      _loadDirectoryContents('$userProfile\\Downloads');
-                    } else if (Platform.isAndroid) {
-                      _loadDirectoryContents('/storage/emulated/0/Download');
-                    }
-                  }),
-                  _buildQuickNavButton(Icons.storage, 'Raíz', () {
-                    Navigator.pop(context);
-                    if (Platform.isLinux) {
-                      _loadDirectoryContents('/');
-                    } else if (Platform.isWindows) {
-                      _loadDirectoryContents('C:\\');
-                    } else if (Platform.isAndroid) {
-                      _loadDirectoryContents('/storage/emulated/0/');
-                    }
-                  }),
-                ],
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildQuickNavButton(IconData icon, String label, VoidCallback onTap) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 32, color: Theme.of(context).primaryColor),
-          const SizedBox(height: 4),
-          Text(label, style: const TextStyle(fontSize: 12)),
-        ],
-      ),
-    );
   }
 
   Widget _buildMusicPlayer() {
@@ -637,18 +835,13 @@ class _AudioFileExplorerState extends State<AudioFileExplorer> {
         actions: [
           IconButton(
             icon: const Icon(Icons.folder_open),
-            onPressed: _showDirectorySelector,
+            onPressed: _selectDirectoryNative,
             tooltip: 'Seleccionar directorio',
           ),
           IconButton(
             icon: const Icon(Icons.edit_location),
             onPressed: _navigateToPath,
             tooltip: 'Ir a ruta específica',
-          ),
-          IconButton(
-            icon: const Icon(Icons.speed),
-            onPressed: _showQuickNavigation,
-            tooltip: 'Navegación rápida',
           ),
           if (currentPath.isNotEmpty)
             IconButton(
@@ -833,12 +1026,4 @@ class _AudioFileExplorerState extends State<AudioFileExplorer> {
       ),
     );
   }
-}
-
-class DirectoryOption {
-  final String name;
-  final String path;
-  final IconData icon;
-
-  DirectoryOption(this.name, this.path, this.icon);
 }

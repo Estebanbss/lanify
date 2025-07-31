@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 
 import 'dart:io';
 import 'package:just_audio/just_audio.dart' as just_audio;
+import 'package:flutter_media_metadata/flutter_media_metadata.dart';
+import 'package:path_provider/path_provider.dart';
 import 'directory_picker.dart';
 import 'package:flutter/services.dart';
 
@@ -195,18 +197,51 @@ class _AudioFileExplorerState extends State<AudioFileExplorer> {
       final filteredFiles = await loadDirectoryContents(path, audioExtensions);
       currentPlaylist = filteredFiles.whereType<File>().toList();
 
-      // Crear MediaItems para audio service
-      currentMediaItems = currentPlaylist.map((file) {
-        return MediaItem(
-          id: file.path,
-          title: getFileName(file.path),
-          artist: 'Unknown Artist',
-          album: 'Unknown Album',
-          extras: {'path': file.path},
-        );
-      }).toList();
+      List<MediaItem> mediaItems = [];
+      for (final file in currentPlaylist) {
+        String title = getFileName(file.path);
+        String artist = 'Unknown Artist';
+        String album = 'Unknown Album';
+        Uri? artUri;
 
-      // Actualizar la cola en audio service
+        try {
+          final metadata = await MetadataRetriever.fromFile(file);
+          if (metadata.trackName != null && metadata.trackName!.isNotEmpty) {
+            title = metadata.trackName!;
+          }
+          if (metadata.trackArtistNames != null &&
+              metadata.trackArtistNames!.isNotEmpty) {
+            artist = metadata.trackArtistNames!.join(', ');
+          }
+          if (metadata.albumName != null && metadata.albumName!.isNotEmpty) {
+            album = metadata.albumName!;
+          }
+          if (metadata.albumArt != null && metadata.albumArt!.isNotEmpty) {
+            // Guardar la carátula como archivo temporal
+            final tempDir = await getTemporaryDirectory();
+            final coverFile = File(
+              '${tempDir.path}/${file.uri.pathSegments.last}_cover.jpg',
+            );
+            await coverFile.writeAsBytes(metadata.albumArt!);
+            artUri = Uri.file(coverFile.path);
+          }
+        } catch (e) {
+          debugPrint('Error extrayendo metadatos de ${file.path}: $e');
+        }
+
+        mediaItems.add(
+          MediaItem(
+            id: file.path,
+            title: title,
+            artist: artist,
+            album: album,
+            artUri: artUri,
+            extras: {'path': file.path},
+          ),
+        );
+      }
+
+      currentMediaItems = mediaItems;
       await _audioHandler.updateQueue(currentMediaItems);
 
       setState(() {
@@ -214,7 +249,6 @@ class _AudioFileExplorerState extends State<AudioFileExplorer> {
         currentPath = path;
         isLoading = false;
       });
-      // debugPrint('_loadDirectoryContents: Archivos encontrados: \'${filteredFiles.length}\'');
     } catch (e) {
       setState(() {
         isLoading = false;
@@ -368,7 +402,12 @@ class _AudioFileExplorerState extends State<AudioFileExplorer> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Music Player Explorer'),
+        title: PathNavigator(
+          currentPath: currentPath,
+          onNavigate: _navigateToPath,
+          onNavigateParent: _navigateToParentDirectory,
+          onCopy: _copyCurrentPath,
+        ),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
           IconButton(
@@ -376,16 +415,7 @@ class _AudioFileExplorerState extends State<AudioFileExplorer> {
             onPressed: _selectDirectoryNative,
             tooltip: 'Seleccionar directorio',
           ),
-          IconButton(
-            icon: const Icon(Icons.edit_location),
-            onPressed: () {
-              PathNavigator(
-                currentPath: currentPath,
-                onNavigate: _navigateToPath,
-              ).createElement().widget;
-            },
-            tooltip: 'Ir a ruta específica',
-          ),
+
           if (currentPath.isNotEmpty)
             IconButton(
               icon: const Icon(Icons.arrow_upward),
@@ -396,13 +426,6 @@ class _AudioFileExplorerState extends State<AudioFileExplorer> {
       ),
       body: Column(
         children: [
-          if (currentPath.isNotEmpty)
-            PathNavigator(
-              currentPath: currentPath,
-              onNavigate: _navigateToPath,
-              onNavigateParent: _navigateToParentDirectory,
-              onCopy: _copyCurrentPath,
-            ),
           FileDirectoryCounter(
             audioFileCount: audioFiles.whereType<File>().length,
             directoryCount: audioFiles.whereType<Directory>().length,

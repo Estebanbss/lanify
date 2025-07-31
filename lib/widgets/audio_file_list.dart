@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:io';
 
-class AudioFileList extends StatelessWidget {
+class AudioFileList extends StatefulWidget {
   final List<FileSystemEntity> audioFiles;
   final String? currentlyPlaying;
   final bool isPlaying;
@@ -24,8 +24,40 @@ class AudioFileList extends StatelessWidget {
   });
 
   @override
+  State<AudioFileList> createState() => _AudioFileListState();
+}
+
+class _AudioFileListState extends State<AudioFileList> {
+  late TextEditingController _searchController;
+  String _filter = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _searchController = TextEditingController();
+    _searchController.addListener(() {
+      setState(() {
+        _filter = _searchController.text.trim().toLowerCase();
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    if (audioFiles.isEmpty) {
+    final filteredFiles = _filter.isEmpty
+        ? widget.audioFiles
+        : widget.audioFiles.where((entity) {
+            final name = widget.getFileName(entity.path).toLowerCase();
+            return name.contains(_filter);
+          }).toList();
+
+    if (widget.audioFiles.isEmpty) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -45,72 +77,115 @@ class AudioFileList extends StatelessWidget {
         ),
       );
     }
-    return ListView.builder(
-      itemCount: audioFiles.length,
-      itemBuilder: (context, index) {
-        final entity = audioFiles[index];
-        final isDirectory = entity is Directory;
-        final fileName = getFileName(entity.path);
-        final isCurrentTrack =
-            !isDirectory &&
-            currentlyPlaying != null &&
-            currentlyPlaying == fileName;
-        return Card(
-          margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-          color: isCurrentTrack
-              ? Theme.of(context).colorScheme.primaryContainer
-              : null,
-          child: ListTile(
-            leading: Icon(
-              isDirectory
-                  ? Icons.folder
-                  : isCurrentTrack && isPlaying
-                  ? Icons.volume_up
-                  : Icons.music_note,
-              color: isDirectory
-                  ? Colors.blue
-                  : isCurrentTrack
-                  ? Theme.of(context).colorScheme.primary
-                  : Colors.green,
-            ),
-            title: Text(
-              fileName,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontWeight: isCurrentTrack ? FontWeight.bold : null,
+
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          child: TextField(
+            controller: _searchController,
+            decoration: InputDecoration(
+              prefixIcon: const Icon(Icons.search),
+              hintText: 'Buscar archivo o carpeta...',
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
               ),
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(
+                vertical: 10,
+                horizontal: 12,
+              ),
+              suffixIcon: _filter.isNotEmpty
+                  ? IconButton(
+                      icon: const Icon(Icons.clear),
+                      onPressed: () => _searchController.clear(),
+                    )
+                  : null,
             ),
-            subtitle: isDirectory
-                ? const Text('Directorio')
-                : FutureBuilder<FileStat>(
-                    future: entity.stat(),
-                    builder: (context, snapshot) {
-                      if (snapshot.hasData) {
-                        return Text(
-                          '${getFileExtension(entity.path).toUpperCase()} • ${formatFileSize(snapshot.data!.size)}',
-                        );
-                      }
-                      return const Text('Cargando...');
-                    },
-                  ),
-            trailing: isDirectory
-                ? const Icon(Icons.chevron_right)
-                : isCurrentTrack
-                ? Icon(
-                    isPlaying ? Icons.pause : Icons.play_arrow,
-                    color: Theme.of(context).colorScheme.primary,
-                  )
-                : const Icon(Icons.play_arrow, color: Colors.grey),
-            onTap: () {
-              if (isDirectory) {
-                onDirectoryTap(entity.path);
-              } else {
-                onFileTap(entity as File, isCurrentTrack);
-              }
-            },
           ),
-        );
-      },
+        ),
+        Expanded(
+          child: filteredFiles.isEmpty
+              ? Center(
+                  child: Text(
+                    'No hay resultados',
+                    style: TextStyle(color: Colors.grey[600]),
+                  ),
+                )
+              : ListView.builder(
+                  itemCount: filteredFiles.length,
+                  itemBuilder: (context, index) {
+                    final entity = filteredFiles[index];
+                    final isDirectory = entity is Directory;
+                    final fileName = widget.getFileName(entity.path);
+                    final isCurrentTrack =
+                        !isDirectory &&
+                        widget.currentlyPlaying != null &&
+                        widget.currentlyPlaying == fileName;
+                    return Card(
+                      margin: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 2,
+                      ),
+                      color: isCurrentTrack
+                          ? Theme.of(context).colorScheme.primaryContainer
+                          : null,
+                      child: ListTile(
+                        leading: Icon(
+                          isDirectory
+                              ? Icons.folder
+                              : isCurrentTrack && widget.isPlaying
+                              ? Icons.volume_up
+                              : Icons.music_note,
+                          color: isDirectory
+                              ? Colors.blue
+                              : isCurrentTrack
+                              ? Theme.of(context).colorScheme.primary
+                              : Colors.green,
+                        ),
+                        title: Text(
+                          fileName,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontWeight: isCurrentTrack ? FontWeight.bold : null,
+                          ),
+                        ),
+                        subtitle: isDirectory
+                            ? const Text('Directorio')
+                            : FutureBuilder<FileStat>(
+                                future: entity.stat(),
+                                builder: (context, snapshot) {
+                                  if (snapshot.hasData) {
+                                    return Text(
+                                      '${widget.getFileExtension(entity.path).toUpperCase()} • ${widget.formatFileSize(snapshot.data!.size)}',
+                                    );
+                                  }
+                                  return const Text('Cargando...');
+                                },
+                              ),
+                        trailing: isDirectory
+                            ? const Icon(Icons.chevron_right)
+                            : isCurrentTrack
+                            ? Icon(
+                                widget.isPlaying
+                                    ? Icons.pause
+                                    : Icons.play_arrow,
+                                color: Theme.of(context).colorScheme.primary,
+                              )
+                            : const Icon(Icons.play_arrow, color: Colors.grey),
+                        onTap: () {
+                          if (isDirectory) {
+                            widget.onDirectoryTap(entity.path);
+                          } else {
+                            widget.onFileTap(entity as File, isCurrentTrack);
+                          }
+                        },
+                      ),
+                    );
+                  },
+                ),
+        ),
+      ],
     );
   }
 }

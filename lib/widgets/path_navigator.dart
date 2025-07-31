@@ -60,12 +60,6 @@ class PathNavigator extends StatelessWidget {
             ),
           ),
         ),
-        if (onNavigateParent != null)
-          IconButton(
-            icon: const Icon(Icons.arrow_upward),
-            onPressed: onNavigateParent,
-            tooltip: 'Directorio padre',
-          ),
       ],
     );
   }

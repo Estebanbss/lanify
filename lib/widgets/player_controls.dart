@@ -39,67 +39,137 @@ class PlayerControls extends StatelessWidget {
         .clamp(0, maxPosition)
         .toDouble();
 
-    debugPrint(
-      '[PLAYER_CONTROLS] build: currentPosition=$currentPosition, totalDuration=$totalDuration',
-    );
-
-    return Column(
-      children: [
-        if (currentlyPlaying != null)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 4.0),
-            child: Text(
-              currentlyPlaying!,
-              style: const TextStyle(fontWeight: FontWeight.bold),
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            IconButton(
-              icon: const Icon(Icons.skip_previous),
-              onPressed: onPrevious,
-              tooltip: 'Anterior',
-            ),
-            IconButton(
-              icon: Icon(isPlaying ? Icons.pause : Icons.play_arrow),
-              onPressed: onPlayPause,
-              tooltip: isPlaying ? 'Pausar' : 'Reproducir',
-            ),
-            IconButton(
-              icon: const Icon(Icons.stop),
-              onPressed: onStop,
-              tooltip: 'Detener',
-            ),
-            IconButton(
-              icon: const Icon(Icons.skip_next),
-              onPressed: onNext,
-              tooltip: 'Siguiente',
+    return Center(
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(24),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.08),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
             ),
           ],
         ),
-        Slider(
-          value: safePosition,
-          min: 0,
-          max: maxPosition,
-          onChanged: totalDuration.inMilliseconds == 0
-              ? null
-              : (value) => onSeek(Duration(milliseconds: value.toInt())),
-        ),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Text(formatDuration(currentPosition)),
-            Text(formatDuration(totalDuration)),
+            if (currentlyPlaying != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8.0),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.music_note,
+                      color: Colors.deepPurple,
+                      size: 28,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        currentlyPlaying!,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                IconButton(
+                  icon: const Icon(
+                    Icons.skip_previous,
+                    size: 32,
+                    color: Colors.blueGrey,
+                  ),
+                  onPressed: onPrevious,
+                  tooltip: 'Anterior',
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  decoration: BoxDecoration(
+                    color: isPlaying ? Colors.deepPurple : Colors.grey[300],
+                    shape: BoxShape.circle,
+                  ),
+                  child: IconButton(
+                    icon: Icon(
+                      isPlaying ? Icons.pause : Icons.play_arrow,
+                      size: 36,
+                      color: isPlaying ? Colors.white : Colors.deepPurple,
+                    ),
+                    onPressed: onPlayPause,
+                    tooltip: isPlaying ? 'Pausar' : 'Reproducir',
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton(
+                  icon: const Icon(
+                    Icons.stop,
+                    size: 32,
+                    color: Colors.redAccent,
+                  ),
+                  onPressed: onStop,
+                  tooltip: 'Detener',
+                ),
+                const SizedBox(width: 8),
+                IconButton(
+                  icon: const Icon(
+                    Icons.skip_next,
+                    size: 32,
+                    color: Colors.blueGrey,
+                  ),
+                  onPressed: onNext,
+                  tooltip: 'Siguiente',
+                ),
+              ],
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8.0),
+              child: Row(
+                children: [
+                  Text(
+                    formatDuration(currentPosition),
+                    style: const TextStyle(fontSize: 12, color: Colors.black54),
+                  ),
+                  Expanded(
+                    child: Slider(
+                      value: safePosition,
+                      min: 0,
+                      max: maxPosition,
+                      activeColor: Colors.deepPurple,
+                      inactiveColor: Colors.deepPurple.shade100,
+                      onChanged: totalDuration.inMilliseconds == 0
+                          ? null
+                          : (value) =>
+                                onSeek(Duration(milliseconds: value.toInt())),
+                    ),
+                  ),
+                  Text(
+                    formatDuration(totalDuration),
+                    style: const TextStyle(fontSize: 12, color: Colors.black54),
+                  ),
+                ],
+              ),
+            ),
+            if (playlistLength > 0)
+              Padding(
+                padding: const EdgeInsets.only(top: 4.0),
+                child: Text(
+                  'Pista ${currentTrackIndex + 1} de $playlistLength',
+                  style: const TextStyle(fontSize: 13, color: Colors.black54),
+                ),
+              ),
           ],
         ),
-        if (playlistLength > 0)
-          Padding(
-            padding: const EdgeInsets.only(top: 4.0),
-            child: Text('Pista ${currentTrackIndex + 1} de $playlistLength'),
-          ),
-      ],
+      ),
     );
   }
 }

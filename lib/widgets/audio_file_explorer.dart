@@ -2,8 +2,8 @@ import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 
 import 'dart:io';
-import 'package:just_audio/just_audio.dart' as just_audio;
 import 'package:flutter_media_metadata/flutter_media_metadata.dart';
+import 'package:lanify/widgets/audio_handler.dart';
 import 'package:path_provider/path_provider.dart';
 import 'directory_picker.dart';
 import 'package:flutter/services.dart';
@@ -18,9 +18,6 @@ import 'error_snackbar.dart';
 import 'path_navigator.dart';
 import 'file_directory_counter.dart';
 import 'loading_indicator.dart';
-
-// Importa tu AudioHandler
-// import 'audio_handler.dart'; // Crear este archivo con el código del AudioHandler
 
 class AudioFileExplorer extends StatefulWidget {
   const AudioFileExplorer({super.key});
@@ -470,183 +467,4 @@ class _AudioFileExplorerState extends State<AudioFileExplorer> {
       ),
     );
   }
-}
-
-// AudioHandler personalizado (colócalo en un archivo separado: audio_handler.dart)
-class MyAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
-  final just_audio.AudioPlayer _player = just_audio.AudioPlayer();
-  final List<MediaItem> _queue = [];
-  int _currentIndex = 0;
-
-  MyAudioHandler() {
-    _init();
-  }
-
-  void _init() {
-    // Escuchar cambios de estado del reproductor
-    _player.playerStateStream.listen((state) {
-      _emitPlaybackState();
-    });
-
-    // Escuchar cambios de posición
-    _player.positionStream.listen((position) {
-      _emitPlaybackState();
-    });
-
-    // Escuchar cuando termina una canción
-    _player.processingStateStream.listen((state) {
-      if (state == just_audio.ProcessingState.completed) {
-        skipToNext();
-      }
-    });
-  }
-
-  void _emitPlaybackState() {
-    final state = _player.playerState;
-    playbackState.add(
-      PlaybackState(
-        controls: [
-          MediaControl.skipToPrevious,
-          if (state.playing) MediaControl.pause else MediaControl.play,
-          MediaControl.skipToNext,
-          MediaControl.stop,
-        ],
-        systemActions: const {
-          MediaAction.seek,
-          MediaAction.seekForward,
-          MediaAction.seekBackward,
-        },
-        androidCompactActionIndices: const [0, 1, 2],
-        processingState: _mapProcessingState(state.processingState),
-        playing: state.playing,
-        updatePosition: _player.position,
-        bufferedPosition: _player.bufferedPosition,
-        speed: _player.speed,
-        queueIndex: _currentIndex,
-      ),
-    );
-  }
-
-  AudioProcessingState _mapProcessingState(just_audio.ProcessingState state) {
-    switch (state) {
-      case just_audio.ProcessingState.idle:
-        return AudioProcessingState.idle;
-      case just_audio.ProcessingState.loading:
-        return AudioProcessingState.loading;
-      case just_audio.ProcessingState.buffering:
-        return AudioProcessingState.buffering;
-      case just_audio.ProcessingState.ready:
-        return AudioProcessingState.ready;
-      case just_audio.ProcessingState.completed:
-        return AudioProcessingState.completed;
-    }
-  }
-
-  @override
-  Future<void> addQueueItems(List<MediaItem> mediaItems) async {
-    _queue.addAll(mediaItems);
-    queue.add(_queue);
-  }
-
-  @override
-  Future<void> updateQueue(List<MediaItem> queue) async {
-    _queue.clear();
-    _queue.addAll(queue);
-    this.queue.add(_queue);
-  }
-
-  @override
-  Future<void> playMediaItem(MediaItem mediaItem) async {
-    final index = _queue.indexOf(mediaItem);
-    if (index != -1) {
-      _currentIndex = index;
-      await _setCurrentMediaItem();
-      await play(); // Reproducir automáticamente después de setear el source
-    }
-  }
-
-  Future<void> _setCurrentMediaItem() async {
-    if (_currentIndex >= 0 && _currentIndex < _queue.length) {
-      final oldMediaItem = _queue[_currentIndex];
-      await _player.setAudioSource(
-        just_audio.AudioSource.uri(
-          Uri.file(oldMediaItem.extras!['path'] as String),
-        ),
-      );
-      // Esperar a que durationStream emita una duración válida (>0)
-      final duration = await _player.durationStream.firstWhere(
-        (d) => d != null && d > Duration.zero,
-      );
-      final updatedMediaItem = oldMediaItem.copyWith(duration: duration);
-      _queue[_currentIndex] = updatedMediaItem;
-      mediaItem.add(updatedMediaItem);
-      queue.add(_queue);
-    }
-  }
-
-  @override
-  Future<void> play() async {
-    if (_queue.isEmpty) return;
-
-    if (_player.audioSource == null && _currentIndex < _queue.length) {
-      await _setCurrentMediaItem();
-    }
-
-    await _player.play();
-  }
-
-  @override
-  Future<void> pause() async {
-    await _player.pause();
-  }
-
-  @override
-  Future<void> stop() async {
-    await _player.stop();
-    playbackState.add(
-      PlaybackState(
-        controls: [],
-        processingState: AudioProcessingState.idle,
-        playing: false,
-      ),
-    );
-    mediaItem.add(null);
-  }
-
-  @override
-  Future<void> skipToNext() async {
-    if (_queue.isEmpty) return;
-
-    _currentIndex = (_currentIndex + 1) % _queue.length;
-    await _setCurrentMediaItem();
-    await play();
-  }
-
-  @override
-  Future<void> skipToPrevious() async {
-    if (_queue.isEmpty) return;
-
-    _currentIndex = (_currentIndex - 1 + _queue.length) % _queue.length;
-    await _setCurrentMediaItem();
-    await play();
-  }
-
-  @override
-  Future<void> seek(Duration position) async {
-    await _player.seek(position);
-  }
-
-  @override
-  Future<void> onTaskRemoved() async {
-    await stop();
-  }
-
-  // Métodos personalizados para tu app
-  void updateCurrentIndex(int index) {
-    _currentIndex = index;
-  }
-
-  int get currentIndex => _currentIndex;
-  List<MediaItem> get currentQueue => _queue;
-  just_audio.AudioPlayer get player => _player;
 }

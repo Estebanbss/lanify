@@ -1,6 +1,7 @@
 import 'package:audio_service/audio_service.dart';
 import 'package:just_audio/just_audio.dart';
 
+// AudioHandler personalizado (colócalo en un archivo separado: audio_handler.dart)
 class MyAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
   final AudioPlayer _player = AudioPlayer();
   final List<MediaItem> _queue = [];
@@ -13,7 +14,26 @@ class MyAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
   void _init() {
     // Escuchar cambios de estado del reproductor
     _player.playerStateStream.listen((state) {
-      playbackState.add(PlaybackState(
+      _emitPlaybackState();
+    });
+
+    // Escuchar cambios de posición
+    _player.positionStream.listen((position) {
+      _emitPlaybackState();
+    });
+
+    // Escuchar cuando termina una canción
+    _player.processingStateStream.listen((state) {
+      if (state == ProcessingState.completed) {
+        skipToNext();
+      }
+    });
+  }
+
+  void _emitPlaybackState() {
+    final state = _player.playerState;
+    playbackState.add(
+      PlaybackState(
         controls: [
           MediaControl.skipToPrevious,
           if (state.playing) MediaControl.pause else MediaControl.play,
@@ -32,22 +52,8 @@ class MyAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
         bufferedPosition: _player.bufferedPosition,
         speed: _player.speed,
         queueIndex: _currentIndex,
-      ));
-    });
-
-    // Escuchar cambios de posición
-    _player.positionStream.listen((position) {
-      playbackState.add(playbackState.value.copyWith(
-        updatePosition: position,
-      ));
-    });
-
-    // Escuchar cuando termina una canción
-    _player.processingStateStream.listen((state) {
-      if (state == ProcessingState.completed) {
-        skipToNext();
-      }
-    });
+      ),
+    );
   }
 
   AudioProcessingState _mapProcessingState(ProcessingState state) {
@@ -84,28 +90,35 @@ class MyAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
     if (index != -1) {
       _currentIndex = index;
       await _setCurrentMediaItem();
+      await play(); // Reproducir automáticamente después de setear el source
     }
   }
 
   Future<void> _setCurrentMediaItem() async {
     if (_currentIndex >= 0 && _currentIndex < _queue.length) {
-      final mediaItem = _queue[_currentIndex];
-      this.mediaItem.add(mediaItem);
-      
+      final oldMediaItem = _queue[_currentIndex];
       await _player.setAudioSource(
-        AudioSource.uri(Uri.file(mediaItem.extras!['path'] as String)),
+        AudioSource.uri(Uri.file(oldMediaItem.extras!['path'] as String)),
       );
+      // Esperar a que durationStream emita una duración válida (>0)
+      final duration = await _player.durationStream.firstWhere(
+        (d) => d != null && d > Duration.zero,
+      );
+      final updatedMediaItem = oldMediaItem.copyWith(duration: duration);
+      _queue[_currentIndex] = updatedMediaItem;
+      mediaItem.add(updatedMediaItem);
+      queue.add(_queue);
     }
   }
 
   @override
   Future<void> play() async {
     if (_queue.isEmpty) return;
-    
+
     if (_player.audioSource == null && _currentIndex < _queue.length) {
       await _setCurrentMediaItem();
     }
-    
+
     await _player.play();
   }
 
@@ -117,18 +130,20 @@ class MyAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
   @override
   Future<void> stop() async {
     await _player.stop();
-    playbackState.add(PlaybackState(
-      controls: [],
-      processingState: AudioProcessingState.idle,
-      playing: false,
-    ));
+    playbackState.add(
+      PlaybackState(
+        controls: [],
+        processingState: AudioProcessingState.idle,
+        playing: false,
+      ),
+    );
     mediaItem.add(null);
   }
 
   @override
   Future<void> skipToNext() async {
     if (_queue.isEmpty) return;
-    
+
     _currentIndex = (_currentIndex + 1) % _queue.length;
     await _setCurrentMediaItem();
     await play();
@@ -137,7 +152,7 @@ class MyAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
   @override
   Future<void> skipToPrevious() async {
     if (_queue.isEmpty) return;
-    
+
     _currentIndex = (_currentIndex - 1 + _queue.length) % _queue.length;
     await _setCurrentMediaItem();
     await play();

@@ -13,6 +13,7 @@ class PlayerControls extends StatelessWidget {
   final int currentTrackIndex;
   final int playlistLength;
   final String Function(Duration) formatDuration;
+  final Color? backgroundColor;
 
   const PlayerControls({
     super.key,
@@ -28,6 +29,7 @@ class PlayerControls extends StatelessWidget {
     required this.currentTrackIndex,
     required this.playlistLength,
     required this.formatDuration,
+    this.backgroundColor,
   });
 
   @override
@@ -39,135 +41,166 @@ class PlayerControls extends StatelessWidget {
         .clamp(0, maxPosition)
         .toDouble();
 
-    return Center(
-      child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(24),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.08),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
+    return Container(
+      color: backgroundColor ?? Colors.transparent,
+      child: Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
+            // Cuadro translúcido y slider estilo Aero
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    formatDuration(currentPosition),
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: Color(0xFF2C3E50),
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  Expanded(
+                    child: SliderTheme(
+                      data: SliderTheme.of(context).copyWith(
+                        trackHeight: 4,
+                        thumbShape: const RoundSliderThumbShape(
+                          enabledThumbRadius: 1,
+                        ),
+                        overlayShape: const RoundSliderOverlayShape(
+                          overlayRadius: 16,
+                        ),
+                        activeTrackColor: const Color.fromARGB(255, 1, 86, 156),
+                        inactiveTrackColor: Colors.transparent,
+                        thumbColor: const Color.fromARGB(255, 1, 86, 156),
+                        overlayColor: const Color.fromARGB(255, 1, 86, 156),
+                        // Para el borde del inactiveTrack, usa trackShape personalizado:
+                        trackShape: RoundedRectSliderTrackShape(),
+                        overlappingShapeStrokeColor: const Color.fromARGB(
+                          255,
+                          1,
+                          86,
+                          156,
+                        ),
+                      ),
+                      child: Slider(
+                        value: safePosition,
+                        min: 0,
+                        max: maxPosition,
+                        onChanged: totalDuration.inMilliseconds == 0
+                            ? null
+                            : (value) =>
+                                  onSeek(Duration(milliseconds: value.toInt())),
+                      ),
+                    ),
+                  ),
+                  Text(
+                    formatDuration(totalDuration),
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: Color(0xFF2C3E50),
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            // Info de la canción centrada, fuente clara
             if (currentlyPlaying != null)
               Padding(
-                padding: const EdgeInsets.only(bottom: 8.0),
+                padding: const EdgeInsets.symmetric(vertical: 0),
                 child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const Icon(
-                      Icons.music_note,
-                      color: Colors.deepPurple,
-                      size: 28,
-                    ),
-                    const SizedBox(width: 10),
                     Expanded(
                       child: Text(
                         currentlyPlaying!,
                         style: const TextStyle(
                           fontWeight: FontWeight.bold,
-                          fontSize: 16,
+                          fontSize: 15,
+                          color: Color(0xFF2C3E50),
+                          fontFamily: 'Segoe UI',
+                          letterSpacing: 2,
                         ),
                         overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
                       ),
                     ),
                   ],
                 ),
               ),
+            // Controles circulares con efecto Aero
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                IconButton(
-                  icon: const Icon(
-                    Icons.skip_previous,
-                    size: 32,
-                    color: Colors.blueGrey,
-                  ),
-                  onPressed: onPrevious,
+                VistaAeroButton(
+                  icon: Icons.skip_previous,
+                  onTap: onPrevious,
                   tooltip: 'Anterior',
+                  secondTheme: true,
                 ),
                 const SizedBox(width: 8),
-                Container(
-                  decoration: BoxDecoration(
-                    color: isPlaying ? Colors.deepPurple : Colors.grey[300],
-                    shape: BoxShape.circle,
-                  ),
-                  child: IconButton(
-                    icon: Icon(
-                      isPlaying ? Icons.pause : Icons.play_arrow,
-                      size: 36,
-                      color: isPlaying ? Colors.white : Colors.deepPurple,
-                    ),
-                    onPressed: onPlayPause,
-                    tooltip: isPlaying ? 'Pausar' : 'Reproducir',
-                  ),
+                VistaAeroButton(
+                  icon: isPlaying ? Icons.pause : Icons.play_arrow,
+                  onTap: onPlayPause,
+                  tooltip: isPlaying ? 'Pausar' : 'Reproducir',
+                  big: true,
                 ),
                 const SizedBox(width: 8),
-                IconButton(
-                  icon: const Icon(
-                    Icons.stop,
-                    size: 32,
-                    color: Colors.redAccent,
-                  ),
-                  onPressed: onStop,
-                  tooltip: 'Detener',
-                ),
-                const SizedBox(width: 8),
-                IconButton(
-                  icon: const Icon(
-                    Icons.skip_next,
-                    size: 32,
-                    color: Colors.blueGrey,
-                  ),
-                  onPressed: onNext,
+                VistaAeroButton(
+                  icon: Icons.skip_next,
+                  onTap: onNext,
+                  secondTheme: true,
                   tooltip: 'Siguiente',
                 ),
               ],
             ),
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8.0),
-              child: Row(
-                children: [
-                  Text(
-                    formatDuration(currentPosition),
-                    style: const TextStyle(fontSize: 12, color: Colors.black54),
-                  ),
-                  Expanded(
-                    child: Slider(
-                      value: safePosition,
-                      min: 0,
-                      max: maxPosition,
-                      activeColor: Colors.deepPurple,
-                      inactiveColor: Colors.deepPurple.shade100,
-                      onChanged: totalDuration.inMilliseconds == 0
-                          ? null
-                          : (value) =>
-                                onSeek(Duration(milliseconds: value.toInt())),
-                    ),
-                  ),
-                  Text(
-                    formatDuration(totalDuration),
-                    style: const TextStyle(fontSize: 12, color: Colors.black54),
-                  ),
-                ],
-              ),
-            ),
-            if (playlistLength > 0)
-              Padding(
-                padding: const EdgeInsets.only(top: 4.0),
-                child: Text(
-                  'Pista ${currentTrackIndex + 1} de $playlistLength',
-                  style: const TextStyle(fontSize: 13, color: Colors.black54),
-                ),
-              ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class VistaAeroButton extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback onTap;
+  final String tooltip;
+  final bool big;
+  final bool secondTheme;
+
+  const VistaAeroButton({
+    required this.icon,
+    required this.onTap,
+    required this.tooltip,
+    this.big = false,
+    this.secondTheme = false,
+    super.key,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: secondTheme
+            ? Colors.white.withValues(alpha: 0.2)
+            : const Color.fromARGB(255, 1, 86, 156),
+        shape: const CircleBorder(),
+        elevation: 36,
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: onTap,
+          child: Padding(
+            padding: EdgeInsets.all(big ? 20 : 8),
+            child: Icon(
+              icon,
+              size: 26,
+              color: secondTheme ? Colors.black : Colors.white,
+            ),
+          ),
         ),
       ),
     );

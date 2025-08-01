@@ -43,6 +43,7 @@ dependencies:
      just_audio: ^0.10.4
      audio_service: ^0.18.12
      flutter_media_metadata: ^1.0.0
+     palette_generator: ^0.3.3+7
 dev_dependencies:
      flutter_test:
           sdk: flutter

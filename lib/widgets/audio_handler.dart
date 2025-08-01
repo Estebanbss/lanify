@@ -1,5 +1,6 @@
 import 'package:audio_service/audio_service.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:flutter/foundation.dart';
 
 // AudioHandler personalizado (colócalo en un archivo separado: audio_handler.dart)
 class MyAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
@@ -79,9 +80,21 @@ class MyAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
 
   @override
   Future<void> updateQueue(List<MediaItem> queue) async {
+    debugPrint(
+      'AudioHandler.updateQueue: Actualizando queue con ${queue.length} elementos',
+    );
     _queue.clear();
     _queue.addAll(queue);
     this.queue.add(_queue);
+
+    // Si hay un elemento actual, actualizar también el mediaItem actual
+    if (_currentIndex >= 0 && _currentIndex < _queue.length) {
+      final currentItem = _queue[_currentIndex];
+      debugPrint(
+        'AudioHandler.updateQueue: Item actual actualizado - ${currentItem.title} (${currentItem.id})',
+      );
+      mediaItem.add(currentItem);
+    }
   }
 
   @override
@@ -171,6 +184,25 @@ class MyAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
   // Métodos personalizados para tu app
   void updateCurrentIndex(int index) {
     _currentIndex = index;
+  }
+
+  /// Actualiza un MediaItem específico en la queue por su índice
+  void updateMediaItemAt(int index, MediaItem updatedItem) {
+    if (index >= 0 && index < _queue.length) {
+      debugPrint(
+        'AudioHandler.updateMediaItemAt: Actualizando item[$index] - ${updatedItem.title} (${updatedItem.id})',
+      );
+      _queue[index] = updatedItem;
+      queue.add(_queue);
+
+      // Si es el item actual, actualizar también el mediaItem stream
+      if (index == _currentIndex) {
+        debugPrint(
+          'AudioHandler.updateMediaItemAt: Es el item actual, actualizando mediaItem stream',
+        );
+        mediaItem.add(updatedItem);
+      }
+    }
   }
 
   int get currentIndex => _currentIndex;

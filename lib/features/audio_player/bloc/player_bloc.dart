@@ -1,0 +1,241 @@
+import 'dart:async';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:just_audio/just_audio.dart' as just_audio;
+
+import 'player_event.dart';
+import 'player_state.dart' as player_state;
+import '../../../core/services/audio_handler.dart';
+
+/// BLoC para manejar el estado del reproductor de audio
+class PlayerBloc extends Bloc<PlayerEvent, player_state.PlayerState> {
+  final LanifyAudioHandler _audioHandler;
+  late final just_audio.AudioPlayer _audioPlayer;
+
+  StreamSubscription<just_audio.PlayerState>? _playerStateSubscription;
+  StreamSubscription<Duration>? _positionSubscription;
+  StreamSubscription<Duration?>? _durationSubscription;
+
+  PlayerBloc({
+    LanifyAudioHandler? audioHandler,
+    just_audio.AudioPlayer? audioPlayer,
+  }) : _audioHandler =
+           audioHandler ?? (throw Exception('AudioHandler is required')),
+       super(const player_state.PlayerState()) {
+    _audioPlayer = _audioHandler.audioPlayer;
+
+    on<PlayAudio>(_onPlayAudio);
+    on<TogglePlayPause>(_onTogglePlayPause);
+    on<StopPlayback>(_onStopPlayback);
+    on<PlayNext>(_onPlayNext);
+    on<PlayPrevious>(_onPlayPrevious);
+    on<SeekTo>(_onSeekTo);
+    on<UpdatePlaylist>(_onUpdatePlaylist);
+    on<UpdatePlayerState>(_onUpdatePlayerState);
+    on<HandleTrackCompleted>(_onHandleTrackCompleted);
+
+    _setupPlayerListeners();
+  }
+
+  /// Configurar listeners del reproductor
+  void _setupPlayerListeners() {
+    // Listener para cambios de estado del reproductor
+    _playerStateSubscription = _audioPlayer.playerStateStream.listen((
+      playerState,
+    ) {
+      final isPlaying = playerState.playing;
+      final isLoading =
+          playerState.processingState == just_audio.ProcessingState.loading ||
+          playerState.processingState == just_audio.ProcessingState.buffering;
+
+      if (state.isPlaying != isPlaying || state.isLoading != isLoading) {
+        add(UpdatePlayerState(isPlaying: isPlaying, isLoading: isLoading));
+      }
+    });
+
+    // Listener para posición actual
+    _positionSubscription = _audioPlayer.positionStream.listen((position) {
+      if (state.currentPosition != position) {
+        add(UpdatePlayerState(currentPosition: position));
+      }
+    });
+
+    // Listener para duración total
+    _durationSubscription = _audioPlayer.durationStream.listen((duration) {
+      if (duration != null && state.totalDuration != duration) {
+        add(UpdatePlayerState(totalDuration: duration));
+      }
+    });
+
+    // Listener para cuando termina una canción
+    _audioPlayer.processingStateStream.listen((processingState) {
+      if (processingState == just_audio.ProcessingState.completed) {
+        add(const HandleTrackCompleted());
+      }
+    });
+  }
+
+  /// Reproducir audio específico
+  Future<void> _onPlayAudio(
+    PlayAudio event,
+    Emitter<player_state.PlayerState> emit,
+  ) async {
+    try {
+      emit(state.copyWith(isLoading: true, error: null));
+
+      // Actualizar playlist si es diferente
+      final playlist = event.playlist;
+      final currentIndex = playlist.indexWhere(
+        (item) => item.id == event.mediaItem.id,
+      );
+
+      if (currentIndex == -1) {
+        emit(
+          state.copyWith(
+            isLoading: false,
+            error: 'Canción no encontrada en la playlist',
+          ),
+        );
+        return;
+      }
+
+      // Usar AudioHandler para reproducir
+      await _audioHandler.playMediaItem(event.mediaItem);
+      await _audioHandler.updateQueue(playlist);
+
+      emit(
+        state.copyWith(
+          currentMediaItem: event.mediaItem,
+          playlist: playlist,
+          currentIndex: currentIndex,
+          isLoading: false,
+        ),
+      );
+    } catch (e) {
+      emit(
+        state.copyWith(
+          isLoading: false,
+          error: 'Error reproduciendo audio: $e',
+        ),
+      );
+    }
+  }
+
+  /// Pausar/reanudar reproducción
+  Future<void> _onTogglePlayPause(
+    TogglePlayPause event,
+    Emitter<player_state.PlayerState> emit,
+  ) async {
+    try {
+      if (state.isPlaying) {
+        await _audioHandler.pause();
+      } else {
+        await _audioHandler.play();
+      }
+    } catch (e) {
+      emit(state.copyWith(error: 'Error al pausar/reanudar: $e'));
+    }
+  }
+
+  /// Detener reproducción
+  Future<void> _onStopPlayback(
+    StopPlayback event,
+    Emitter<player_state.PlayerState> emit,
+  ) async {
+    try {
+      await _audioHandler.stop();
+      emit(
+        state.copyWith(
+          currentMediaItem: null,
+          currentIndex: -1,
+          isPlaying: false,
+          currentPosition: Duration.zero,
+          totalDuration: Duration.zero,
+        ),
+      );
+    } catch (e) {
+      emit(state.copyWith(error: 'Error al detener: $e'));
+    }
+  }
+
+  /// Reproducir siguiente canción
+  Future<void> _onPlayNext(
+    PlayNext event,
+    Emitter<player_state.PlayerState> emit,
+  ) async {
+    if (!state.hasNext) return;
+
+    final nextIndex = state.currentIndex + 1;
+    final nextMediaItem = state.playlist[nextIndex];
+
+    add(PlayAudio(mediaItem: nextMediaItem, playlist: state.playlist));
+  }
+
+  /// Reproducir canción anterior
+  Future<void> _onPlayPrevious(
+    PlayPrevious event,
+    Emitter<player_state.PlayerState> emit,
+  ) async {
+    if (!state.hasPrevious) return;
+
+    final previousIndex = state.currentIndex - 1;
+    final previousMediaItem = state.playlist[previousIndex];
+
+    add(PlayAudio(mediaItem: previousMediaItem, playlist: state.playlist));
+  }
+
+  /// Buscar posición específica
+  Future<void> _onSeekTo(
+    SeekTo event,
+    Emitter<player_state.PlayerState> emit,
+  ) async {
+    try {
+      await _audioHandler.seek(event.position);
+    } catch (e) {
+      emit(state.copyWith(error: 'Error al buscar posición: $e'));
+    }
+  }
+
+  /// Actualizar playlist
+  void _onUpdatePlaylist(
+    UpdatePlaylist event,
+    Emitter<player_state.PlayerState> emit,
+  ) {
+    emit(state.copyWith(playlist: event.playlist));
+  }
+
+  /// Actualizar estado del player
+  void _onUpdatePlayerState(
+    UpdatePlayerState event,
+    Emitter<player_state.PlayerState> emit,
+  ) {
+    emit(
+      state.copyWith(
+        isPlaying: event.isPlaying,
+        isLoading: event.isLoading,
+        currentPosition: event.currentPosition,
+        totalDuration: event.totalDuration,
+      ),
+    );
+  }
+
+  /// Manejar cuando termina una canción
+  void _onHandleTrackCompleted(
+    HandleTrackCompleted event,
+    Emitter<player_state.PlayerState> emit,
+  ) {
+    if (state.hasNext) {
+      add(const PlayNext());
+    } else {
+      add(const StopPlayback());
+    }
+  }
+
+  @override
+  Future<void> close() {
+    _playerStateSubscription?.cancel();
+    _positionSubscription?.cancel();
+    _durationSubscription?.cancel();
+    _audioHandler.dispose();
+    return super.close();
+  }
+}

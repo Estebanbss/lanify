@@ -328,26 +328,29 @@ void _playAudio(
 void _showAudioFileMenu(BuildContext context, AudioFileItem audioFile) {
   showModalBottomSheet(
     context: context,
-    builder: (context) => Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        ListTile(
-          leading: const Icon(Icons.info),
-          title: const Text('Información del archivo'),
-          onTap: () {
-            Navigator.pop(context);
-            _showFileInfo(context, audioFile);
-          },
-        ),
-        ListTile(
-          leading: const Icon(Icons.edit),
-          title: const Text('Edit Song'),
-          onTap: () {
-            Navigator.pop(context);
-            _showEditMetadata(context, audioFile);
-          },
-        ),
-      ],
+    builder: (bottomSheetContext) => BlocProvider.value(
+      value: context.read<DirectoryBloc>(),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ListTile(
+            leading: const Icon(Icons.info),
+            title: const Text('Información del archivo'),
+            onTap: () {
+              Navigator.pop(bottomSheetContext);
+              _showFileInfo(context, audioFile);
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.edit),
+            title: const Text('Edit Song'),
+            onTap: () {
+              Navigator.pop(bottomSheetContext);
+              _showEditMetadata(context, audioFile);
+            },
+          ),
+        ],
+      ),
     ),
   );
 }
@@ -371,6 +374,9 @@ void _showFileInfo(BuildContext context, AudioFileItem audioFile) {
 void _showEditMetadata(BuildContext context, AudioFileItem audioFile) {
   showDialog(
     context: context,
-    builder: (context) => EditMetadataDialog(audioFile: audioFile),
+    builder: (dialogContext) => BlocProvider.value(
+      value: context.read<DirectoryBloc>(),
+      child: EditMetadataDialog(audioFile: audioFile),
+    ),
   );
 }

@@ -5,7 +5,11 @@ import 'package:just_audio/just_audio.dart';
 class LanifyAudioHandler extends BaseAudioHandler
     with QueueHandler, SeekHandler {
   final AudioPlayer _audioPlayer;
-
+  void Function()? onSkipToNext;
+  void Function()? onSkipToPrevious;
+  void Function()? onPlay;
+  void Function()? onPause;
+  void Function(Duration?)? onDurationChanged;
   LanifyAudioHandler() : _audioPlayer = AudioPlayer() {
     _initializeAudioHandler();
   }
@@ -19,6 +23,9 @@ class LanifyAudioHandler extends BaseAudioHandler
     _audioPlayer.durationStream.listen((duration) {
       if (duration != null && mediaItem.value != null) {
         mediaItem.add(mediaItem.value!.copyWith(duration: duration));
+        if (onDurationChanged != null) {
+          onDurationChanged!(duration);
+        }
       }
     });
   }
@@ -53,11 +60,17 @@ class LanifyAudioHandler extends BaseAudioHandler
 
   @override
   Future<void> play() async {
+    if (onPlay != null) {
+      onPlay!();
+    }
     await _audioPlayer.play();
   }
 
   @override
   Future<void> pause() async {
+    if (onPause != null) {
+      onPause!();
+    }
     await _audioPlayer.pause();
   }
 
@@ -74,15 +87,17 @@ class LanifyAudioHandler extends BaseAudioHandler
 
   @override
   Future<void> skipToNext() async {
-    // Implementar lógica de siguiente canción
-    // Por ahora solo emitir el evento
+    if (onSkipToNext != null) {
+      onSkipToNext!();
+    }
     await super.skipToNext();
   }
 
   @override
   Future<void> skipToPrevious() async {
-    // Implementar lógica de canción anterior
-    // Por ahora solo emitir el evento
+    if (onSkipToPrevious != null) {
+      onSkipToPrevious!();
+    }
     await super.skipToPrevious();
   }
 

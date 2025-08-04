@@ -38,7 +38,11 @@ class AudioExplorerView extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Audio Explorer'),
+        title: Row(
+          children: const [
+            Expanded(child: DirectoryNavigationBar()),
+          ],
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.folder_open),
@@ -67,7 +71,6 @@ class AudioExplorerView extends StatelessWidget {
       body: Column(
         children: [
           const SearchBarWidget(),
-          const DirectoryNavigationBar(),
           Expanded(
             child: BlocBuilder<DirectoryBloc, DirectoryState>(
               builder: (context, state) {

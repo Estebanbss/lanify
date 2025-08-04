@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:just_audio/just_audio.dart' as just_audio;
 
@@ -8,6 +9,32 @@ import '../../../core/services/audio_handler.dart';
 
 /// BLoC para manejar el estado del reproductor de audio
 class PlayerBloc extends Bloc<PlayerEvent, player_state.PlayerState> {
+  // Callbacks para sincronización con el handler
+  void onPlay() {
+    add(UpdatePlayerState(isPlaying: true));
+  }
+
+  void onPause() {
+    add(UpdatePlayerState(isPlaying: false));
+  }
+
+  void onDurationChanged(Duration? duration) {
+    if (duration != null) {
+      add(UpdatePlayerState(totalDuration: duration));
+    }
+  }
+
+  // Métodos públicos para los callbacks del handler
+  void playNext() {
+    debugPrint('Playing next track in bloc');
+    add(const PlayNext());
+  }
+
+  void playPrevious() {
+    debugPrint('Playing previous track in bloc');
+    add(const PlayPrevious());
+  }
+
   final LanifyAudioHandler _audioHandler;
   late final just_audio.AudioPlayer _audioPlayer;
 
@@ -22,6 +49,13 @@ class PlayerBloc extends Bloc<PlayerEvent, player_state.PlayerState> {
            audioHandler ?? (throw Exception('AudioHandler is required')),
        super(const player_state.PlayerState()) {
     _audioPlayer = _audioHandler.audioPlayer;
+
+    // Conectar los callbacks del handler con los métodos públicos del bloc
+    _audioHandler.onSkipToNext = playNext;
+    _audioHandler.onSkipToPrevious = playPrevious;
+    _audioHandler.onPlay = onPlay;
+    _audioHandler.onPause = onPause;
+    _audioHandler.onDurationChanged = onDurationChanged;
 
     on<PlayAudio>(_onPlayAudio);
     on<TogglePlayPause>(_onTogglePlayPause);
@@ -80,8 +114,6 @@ class PlayerBloc extends Bloc<PlayerEvent, player_state.PlayerState> {
     Emitter<player_state.PlayerState> emit,
   ) async {
     try {
-      emit(state.copyWith(isLoading: true, error: null));
-
       // Actualizar playlist si es diferente
       final playlist = event.playlist;
       final currentIndex = playlist.indexWhere(
@@ -98,18 +130,23 @@ class PlayerBloc extends Bloc<PlayerEvent, player_state.PlayerState> {
         return;
       }
 
-      // Usar AudioHandler para reproducir
-      await _audioHandler.playMediaItem(event.mediaItem);
-      await _audioHandler.updateQueue(playlist);
-
+      // Establecer currentMediaItem inmediatamente para mostrar los controles
       emit(
         state.copyWith(
           currentMediaItem: event.mediaItem,
           playlist: playlist,
           currentIndex: currentIndex,
-          isLoading: false,
+          isLoading: true,
+          error: null,
         ),
       );
+
+      // Usar AudioHandler para reproducir (operaciones asíncronas)
+      await _audioHandler.playMediaItem(event.mediaItem);
+      await _audioHandler.updateQueue(playlist);
+
+      // Finalizar carga
+      emit(state.copyWith(isLoading: false));
     } catch (e) {
       emit(
         state.copyWith(

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:lanify/shared/widgets/show_image.dart';
 import 'dart:io';
 
 import '../bloc/directory_bloc.dart';
@@ -137,6 +138,7 @@ class AudioFileListView extends StatelessWidget {
 
         return ListTile(
           leading: _buildLeadingIcon(
+            context,
             isCurrentlyPlaying,
             isLoading,
             playerState.isPlaying,
@@ -183,6 +185,7 @@ class AudioFileListView extends StatelessWidget {
   }
 
   Widget _buildLeadingIcon(
+    BuildContext context,
     bool isCurrentlyPlaying,
     bool isLoading,
     bool isPlaying,
@@ -219,51 +222,60 @@ class AudioFileListView extends StatelessWidget {
     if (audioFile.effectiveArtworkPath != null &&
         audioFile.effectiveArtworkPath!.isNotEmpty &&
         File(audioFile.effectiveArtworkPath!).existsSync()) {
-      return Container(
-        width: 56,
-        height: 56,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(6),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.1),
-              blurRadius: 4,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(6),
-          child: Stack(
-            children: [
-              // Imagen de fondo
-              Image.file(
-                File(audioFile.effectiveArtworkPath!),
-                width: 56,
-                height: 56,
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) {
-                  // Si hay error cargando la imagen, mostrar ícono por defecto
-                  return Container(
-                    width: 56,
-                    height: 56,
-                    color: Colors.grey[300],
-                    child: const Icon(Icons.music_note, color: Colors.grey),
-                  );
-                },
+      return GestureDetector(
+        onTap: () {
+          showDialog(
+            context: context,
+            builder: (context) =>
+                ShowImage(image: audioFile.effectiveArtworkPath),
+          );
+        },
+        child: Container(
+          width: 56,
+          height: 56,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(6),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withAlpha(25),
+                blurRadius: 4,
+                offset: const Offset(0, 2),
               ),
-              // Overlay para controles de reproducción
-              if (isCurrentlyPlaying)
-                Container(
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(6),
+            child: Stack(
+              children: [
+                // Imagen de fondo
+                Image.file(
+                  File(audioFile.effectiveArtworkPath!),
                   width: 56,
                   height: 56,
-                  decoration: BoxDecoration(
-                    color: Colors.black54,
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Center(child: iconContent),
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) {
+                    // Si hay error cargando la imagen, mostrar ícono por defecto
+                    return Container(
+                      width: 56,
+                      height: 56,
+                      color: Colors.grey[300],
+                      child: const Icon(Icons.music_note, color: Colors.grey),
+                    );
+                  },
                 ),
-            ],
+                // Overlay para controles de reproducción
+                if (isCurrentlyPlaying)
+                  Container(
+                    width: 56,
+                    height: 56,
+                    decoration: BoxDecoration(
+                      color: Colors.black54,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Center(child: iconContent),
+                  ),
+              ],
+            ),
           ),
         ),
       );
@@ -275,7 +287,7 @@ class AudioFileListView extends StatelessWidget {
       height: 56,
       decoration: BoxDecoration(
         color: isCurrentlyPlaying
-            ? Colors.blue.withValues(alpha: 0.1)
+            ? Colors.blue.withAlpha(25)
             : Colors.grey[100],
         borderRadius: BorderRadius.circular(6),
         border: isCurrentlyPlaying
@@ -293,74 +305,76 @@ class AudioFileListView extends StatelessWidget {
       ),
     );
   }
+}
 
-  void _playAudio(
-    BuildContext context,
-    AudioFileItem audioFile,
-    List<AudioFileItem> playlist,
-  ) {
-    // Convertir a MediaItems para el player
-    final mediaItems = playlist.map((file) => file.toMediaItem()).toList();
-    final mediaItem = audioFile.toMediaItem();
+void _playAudio(
+  BuildContext context,
+  AudioFileItem audioFile,
+  List<AudioFileItem> playlist,
+) {
+  // Convertir a MediaItems para el player
+  final mediaItems = playlist.map((file) => file.toMediaItem()).toList();
+  final mediaItem = audioFile.toMediaItem();
 
-    context.read<PlayerBloc>().add(
-      PlayAudio(mediaItem: mediaItem, playlist: mediaItems),
-    );
+  context.read<PlayerBloc>().add(
+    PlayAudio(mediaItem: mediaItem, playlist: mediaItems),
+  );
 
-    // Actualizar el estado en DirectoryBloc
-    context.read<DirectoryBloc>().add(SetCurrentlyPlaying(audioFile.file.path));
-  }
+  // Actualizar el estado en DirectoryBloc
+  context.read<DirectoryBloc>().add(SetCurrentlyPlaying(audioFile.file.path));
+}
 
-  void _showAudioFileMenu(BuildContext context, AudioFileItem audioFile) {
-    showModalBottomSheet(
-      context: context,
-      builder: (context) => Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          ListTile(
-            leading: const Icon(Icons.info),
-            title: const Text('Información del archivo'),
-            onTap: () {
-              Navigator.pop(context);
-              _showFileInfo(context, audioFile);
-            },
-          ),
-          ListTile(
-            leading: const Icon(Icons.folder),
-            title: const Text('Mostrar en carpeta'),
-            onTap: () {
-              Navigator.pop(context);
-              _showInFolder(context, audioFile);
-            },
-          ),
-        ],
-      ),
-    );
-  }
+void _showAudioFileMenu(BuildContext context, AudioFileItem audioFile) {
+  showModalBottomSheet(
+    context: context,
+    builder: (context) => Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        ListTile(
+          leading: const Icon(Icons.info),
+          title: const Text('Información del archivo'),
+          onTap: () {
+            Navigator.pop(context);
+            _showFileInfo(context, audioFile);
+          },
+        ),
+        ListTile(
+          leading: const Icon(Icons.folder),
+          title: const Text('Mostrar en carpeta'),
+          onTap: () {
+            Navigator.pop(context);
+            _showInFolder(context, audioFile);
+          },
+        ),
+      ],
+    ),
+  );
+}
 
-  void _showFileInfo(BuildContext context, AudioFileItem audioFile) {
-    showDialog(
-      context: context,
-      builder: (context) => FileInfoDialog(
-        title: audioFile.title,
-        artist: audioFile.artist,
-        album: audioFile.album,
-        fileName: audioFile.fileName,
-        duration: audioFile.duration,
-        fileSize: audioFile.metadata?.extras?['fileSize'] as int?,
-      ),
-    );
-  }
+void _showFileInfo(BuildContext context, AudioFileItem audioFile) {
+  showDialog(
+    context: context,
+    builder: (context) => FileInfoDialog(
+      title: audioFile.title,
+      artist: audioFile.artist,
+      album: audioFile.album,
+      fileName: audioFile.fileName,
+      duration: audioFile.duration,
+      fileSize: audioFile.metadata?.extras?['fileSize'] as int?,
+      artworkPath: audioFile.effectiveArtworkPath,
+      extras: audioFile.metadata?.extras,
+    ),
+  );
+}
 
-  void _showInFolder(BuildContext context, AudioFileItem audioFile) {
-    final directory = audioFile.file.parent;
-    context.read<DirectoryBloc>().add(LoadDirectory(directory.path));
+void _showInFolder(BuildContext context, AudioFileItem audioFile) {
+  final directory = audioFile.file.parent;
+  context.read<DirectoryBloc>().add(LoadDirectory(directory.path));
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Navegando a: ${directory.path}'),
-        duration: const Duration(seconds: 2),
-      ),
-    );
-  }
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: Text('Navegando a: ${directory.path}'),
+      duration: const Duration(seconds: 2),
+    ),
+  );
 }

@@ -8,6 +8,13 @@ import '../../../features/audio_player/bloc/player_state.dart' as player_state;
 class PlayerControls extends StatelessWidget {
   const PlayerControls({super.key});
 
+  String _formatDuration(Duration duration) {
+    String twoDigits(int n) => n.toString().padLeft(2, '0');
+    final minutes = twoDigits(duration.inMinutes.remainder(60));
+    final seconds = twoDigits(duration.inSeconds.remainder(60));
+    return '$minutes:$seconds';
+  }
+
   @override
   Widget build(BuildContext context) {
     return BlocBuilder<PlayerBloc, player_state.PlayerState>(
@@ -17,78 +24,117 @@ class PlayerControls extends StatelessWidget {
         }
 
         return Container(
-          height: 80,
-          padding: const EdgeInsets.all(8.0),
-          decoration: BoxDecoration(
-            color: Theme.of(context).cardColor,
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.1),
-                blurRadius: 4,
-                offset: const Offset(0, -2),
-              ),
-            ],
-          ),
-          child: Row(
+          padding: const EdgeInsets.symmetric(horizontal: 8.0),
+          child: Column(
             children: [
-              // Album art
-              _buildArtwork(state),
-              const SizedBox(width: 12),
-
-              // Track info
-              Expanded(
+              // Duration slider row
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16.0),
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Text(
-                      state.currentMediaItem!.title,
-                      style: Theme.of(context).textTheme.titleSmall,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    Text(
-                      state.currentMediaItem!.artist ?? 'Artista Desconocido',
-                      style: Theme.of(context).textTheme.bodySmall,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                    Row(
+                      children: [
+                        // Current position
+                        Text(
+                          _formatDuration(state.currentPosition),
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                        // Slider
+                        Expanded(
+                          child: SliderTheme(
+                            data: SliderThemeData(
+                              trackHeight: 2,
+                              thumbShape: const RoundSliderThumbShape(
+                                enabledThumbRadius: 6,
+                              ),
+                            ),
+                            child: Slider(
+                              value: state.currentPosition.inMilliseconds
+                                  .toDouble(),
+                              min: 0,
+                              max: state.totalDuration.inMilliseconds
+                                  .toDouble(),
+                              onChanged: (value) {
+                                final position = Duration(
+                                  milliseconds: value.round(),
+                                );
+                                context.read<PlayerBloc>().add(
+                                  SeekTo(position),
+                                );
+                              },
+                            ),
+                          ),
+                        ),
+                        // Total duration
+                        Text(
+                          _formatDuration(state.totalDuration),
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ],
                     ),
                   ],
                 ),
               ),
 
-              // Previous button
-              IconButton(
-                onPressed: state.hasPrevious
-                    ? () => context.read<PlayerBloc>().add(const PlayPrevious())
-                    : null,
-                icon: const Icon(Icons.skip_previous),
-              ),
-
-              // Play/Pause button
-              if (state.isLoading)
-                const SizedBox(
-                  width: 32,
-                  height: 32,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              else
-                IconButton(
-                  onPressed: () {
-                    context.read<PlayerBloc>().add(const TogglePlayPause());
-                  },
-                  icon: Icon(
-                    state.isPlaying ? Icons.pause : Icons.play_arrow,
-                    size: 32,
+              Row(
+                children: [
+                  // Album art
+                  _buildArtwork(state),
+                  const SizedBox(width: 12),
+                  // Track info
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          state.currentMediaItem!.title,
+                          style: Theme.of(context).textTheme.titleSmall,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        Text(
+                          state.currentMediaItem!.artist ??
+                              'Artista Desconocido',
+                          style: Theme.of(context).textTheme.bodySmall,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-
-              // Next button
-              IconButton(
-                onPressed: state.hasNext
-                    ? () => context.read<PlayerBloc>().add(const PlayNext())
-                    : null,
-                icon: const Icon(Icons.skip_next),
+                  // Playback controls
+                  IconButton(
+                    onPressed: state.hasPrevious
+                        ? () => context.read<PlayerBloc>().add(
+                            const PlayPrevious(),
+                          )
+                        : null,
+                    icon: const Icon(Icons.skip_previous),
+                  ),
+                  if (state.isLoading)
+                    const SizedBox(
+                      width: 32,
+                      height: 32,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  else
+                    IconButton(
+                      onPressed: () {
+                        context.read<PlayerBloc>().add(const TogglePlayPause());
+                      },
+                      icon: Icon(
+                        state.isPlaying ? Icons.pause : Icons.play_arrow,
+                        size: 32,
+                      ),
+                    ),
+                  IconButton(
+                    onPressed: state.hasNext
+                        ? () => context.read<PlayerBloc>().add(const PlayNext())
+                        : null,
+                    icon: const Icon(Icons.skip_next),
+                  ),
+                ],
               ),
             ],
           ),

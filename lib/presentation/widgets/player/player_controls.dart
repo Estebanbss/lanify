@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:lanify/shared/widgets/show_image.dart';
 import 'dart:io';
 import '../../../features/audio_player/bloc/player_bloc.dart';
 import '../../../features/audio_player/bloc/player_event.dart';
@@ -79,7 +80,7 @@ class PlayerControls extends StatelessWidget {
               Row(
                 children: [
                   // Album art
-                  _buildArtwork(state),
+                  _buildArtwork(context, state),
                   const SizedBox(width: 12),
                   // Track info
                   Expanded(
@@ -143,34 +144,45 @@ class PlayerControls extends StatelessWidget {
     );
   }
 
-  Widget _buildArtwork(player_state.PlayerState state) {
+  Widget _buildArtwork(BuildContext context, player_state.PlayerState state) {
     final artUri = state.currentMediaItem?.artUri;
 
     if (artUri != null) {
       final artworkPath = artUri.toFilePath();
       if (File(artworkPath).existsSync()) {
-        return Container(
-          width: 60,
-          height: 60,
-          decoration: BoxDecoration(borderRadius: BorderRadius.circular(8)),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(8),
-            child: Image.file(
-              File(artworkPath),
+        return MouseRegion(
+          cursor: SystemMouseCursors.click,
+          child: GestureDetector(
+            onTap: () {
+              showDialog(
+                context: context,
+                builder: (context) => ShowImage(image: artworkPath),
+              );
+            },
+            child: Container(
               width: 60,
               height: 60,
-              fit: BoxFit.cover,
-              errorBuilder: (context, error, stackTrace) {
-                return Container(
+              decoration: BoxDecoration(borderRadius: BorderRadius.circular(8)),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: Image.file(
+                  File(artworkPath),
                   width: 60,
                   height: 60,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(8),
-                    color: Colors.grey[300],
-                  ),
-                  child: const Icon(Icons.music_note, size: 30),
-                );
-              },
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) {
+                    return Container(
+                      width: 60,
+                      height: 60,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(8),
+                        color: Colors.grey[300],
+                      ),
+                      child: const Icon(Icons.music_note, size: 30),
+                    );
+                  },
+                ),
+              ),
             ),
           ),
         );

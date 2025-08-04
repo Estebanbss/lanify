@@ -12,6 +12,7 @@ import '../../audio_player/bloc/player_event.dart';
 import '../../audio_player/bloc/player_state.dart' as player_state;
 import '../../../core/utils/file_utils.dart';
 import '../../../shared/widgets/file_info_dialog.dart';
+import 'edit_metadata_dialog.dart';
 
 /// Vista de lista de archivos de audio y directorios
 class AudioFileListView extends StatelessWidget {
@@ -339,11 +340,11 @@ void _showAudioFileMenu(BuildContext context, AudioFileItem audioFile) {
           },
         ),
         ListTile(
-          leading: const Icon(Icons.folder),
-          title: const Text('Mostrar en carpeta'),
+          leading: const Icon(Icons.edit),
+          title: const Text('Edit Song'),
           onTap: () {
             Navigator.pop(context);
-            _showInFolder(context, audioFile);
+            _showEditMetadata(context, audioFile);
           },
         ),
       ],
@@ -367,14 +368,9 @@ void _showFileInfo(BuildContext context, AudioFileItem audioFile) {
   );
 }
 
-void _showInFolder(BuildContext context, AudioFileItem audioFile) {
-  final directory = audioFile.file.parent;
-  context.read<DirectoryBloc>().add(LoadDirectory(directory.path));
-
-  ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(
-      content: Text('Navegando a: ${directory.path}'),
-      duration: const Duration(seconds: 2),
-    ),
+void _showEditMetadata(BuildContext context, AudioFileItem audioFile) {
+  showDialog(
+    context: context,
+    builder: (context) => EditMetadataDialog(audioFile: audioFile),
   );
 }

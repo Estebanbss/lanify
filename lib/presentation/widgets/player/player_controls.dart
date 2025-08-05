@@ -20,7 +20,7 @@ class PlayerControls extends StatelessWidget {
   Widget build(BuildContext context) {
     return BlocBuilder<PlayerBloc, player_state.PlayerState>(
       builder: (context, state) {
-        if (state.currentMediaItem == null) {
+        if (state.currentAudioFile == null) {
           return const SizedBox.shrink();
         }
 
@@ -50,19 +50,30 @@ class PlayerControls extends StatelessWidget {
                               ),
                             ),
                             child: Slider(
-                              value: state.currentPosition.inMilliseconds
-                                  .toDouble(),
+                              value: state.totalDuration.inMilliseconds > 0
+                                  ? state.currentPosition.inMilliseconds
+                                        .toDouble()
+                                        .clamp(
+                                          0.0,
+                                          state.totalDuration.inMilliseconds
+                                              .toDouble(),
+                                        )
+                                  : 0.0,
                               min: 0,
-                              max: state.totalDuration.inMilliseconds
-                                  .toDouble(),
-                              onChanged: (value) {
-                                final position = Duration(
-                                  milliseconds: value.round(),
-                                );
-                                context.read<PlayerBloc>().add(
-                                  SeekTo(position),
-                                );
-                              },
+                              max: state.totalDuration.inMilliseconds > 0
+                                  ? state.totalDuration.inMilliseconds
+                                        .toDouble()
+                                  : 1.0,
+                              onChanged: state.totalDuration.inMilliseconds > 0
+                                  ? (value) {
+                                      final position = Duration(
+                                        milliseconds: value.round(),
+                                      );
+                                      context.read<PlayerBloc>().add(
+                                        SeekTo(position),
+                                      );
+                                    }
+                                  : null,
                             ),
                           ),
                         ),
@@ -89,14 +100,13 @@ class PlayerControls extends StatelessWidget {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Text(
-                          state.currentMediaItem!.title,
+                          state.currentAudioFile!.title,
                           style: Theme.of(context).textTheme.titleSmall,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
                         Text(
-                          state.currentMediaItem!.artist ??
-                              'Artista Desconocido',
+                          state.currentAudioFile!.artist,
                           style: Theme.of(context).textTheme.bodySmall,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -145,48 +155,47 @@ class PlayerControls extends StatelessWidget {
   }
 
   Widget _buildArtwork(BuildContext context, player_state.PlayerState state) {
-    final artUri = state.currentMediaItem?.artUri;
+    final artworkPath = state.currentAudioFile?.effectiveArtworkPath;
 
-    if (artUri != null) {
-      final artworkPath = artUri.toFilePath();
-      if (File(artworkPath).existsSync()) {
-        return MouseRegion(
-          cursor: SystemMouseCursors.click,
-          child: GestureDetector(
-            onTap: () {
-              showDialog(
-                context: context,
-                builder: (context) => ShowImage(image: artworkPath),
-              );
-            },
-            child: Container(
-              width: 60,
-              height: 60,
-              decoration: BoxDecoration(borderRadius: BorderRadius.circular(8)),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: Image.file(
-                  File(artworkPath),
-                  width: 60,
-                  height: 60,
-                  fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) {
-                    return Container(
-                      width: 60,
-                      height: 60,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(8),
-                        color: Colors.grey[300],
-                      ),
-                      child: const Icon(Icons.music_note, size: 30),
-                    );
-                  },
-                ),
+    if (artworkPath != null &&
+        artworkPath.isNotEmpty &&
+        File(artworkPath).existsSync()) {
+      return MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: GestureDetector(
+          onTap: () {
+            showDialog(
+              context: context,
+              builder: (context) => ShowImage(image: artworkPath),
+            );
+          },
+          child: Container(
+            width: 60,
+            height: 60,
+            decoration: BoxDecoration(borderRadius: BorderRadius.circular(8)),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Image.file(
+                File(artworkPath),
+                width: 60,
+                height: 60,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) {
+                  return Container(
+                    width: 60,
+                    height: 60,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(8),
+                      color: Colors.grey[300],
+                    ),
+                    child: const Icon(Icons.music_note, size: 30),
+                  );
+                },
               ),
             ),
           ),
-        );
-      }
+        ),
+      );
     }
 
     // Fallback al contenedor con ícono

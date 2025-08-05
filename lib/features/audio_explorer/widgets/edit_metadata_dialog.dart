@@ -1,16 +1,15 @@
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:audio_service/audio_service.dart';
-import 'package:audiotags/audiotags.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:flutter_media_metadata/flutter_media_metadata.dart';
+import 'package:audio_service/audio_service.dart' as audio_service;
 
+import '../models/audio_file_item.dart';
 import '../bloc/directory_bloc.dart';
 import '../bloc/directory_event.dart';
-import '../models/audio_file_item.dart';
+import '../../../core/services/metadata_writer_service.dart';
 
 class EditMetadataDialog extends StatefulWidget {
   final AudioFileItem audioFile;
@@ -112,11 +111,17 @@ class _EditMetadataDialogState extends State<EditMetadataDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Row(
+      title: Row(
         children: [
-          Icon(Icons.edit, color: Colors.blue),
-          SizedBox(width: 8),
-          Text('Edit Song'),
+          const Icon(Icons.edit, color: Colors.blue),
+          const SizedBox(width: 8),
+          const Text('Edit Song'),
+          const Spacer(),
+          IconButton(
+            icon: const Icon(Icons.info_outline),
+            onPressed: _showMetadataServiceInfo,
+            tooltip: 'Información del servicio de metadatos',
+          ),
         ],
       ),
       content: SingleChildScrollView(
@@ -447,213 +452,187 @@ class _EditMetadataDialogState extends State<EditMetadataDialog> {
       if (titleController.text.trim().isEmpty &&
           artistController.text.trim().isEmpty &&
           albumController.text.trim().isEmpty) {
-        throw Exception('Debe llenar al menos un campo de metadatos');
+        throw Exception('Debe llenar al menos el título, artista o álbum');
       }
 
-      // Verificar si necesitamos renombrar el archivo PRIMERO
-      final newFileName = fileNameController.text.trim();
-      final currentFileName = widget.audioFile.fileName;
       File workingFile = widget.audioFile.file;
 
-      if (newFileName.isNotEmpty && newFileName != currentFileName) {
-        await _renameFile(newFileName);
-        // Actualizar la referencia del archivo después del renombramiento
+      // Renombrar archivo si es necesario
+      if (fileNameController.text.trim().isNotEmpty &&
+          fileNameController.text.trim() != widget.audioFile.fileName) {
+        await _renameFile(fileNameController.text.trim());
+        // Actualizar la referencia al archivo después del renombre
         final directory = widget.audioFile.file.parent;
         final extension = widget.audioFile.file.path.split('.').last;
-
-        String cleanNewFileName = newFileName;
-        if (cleanNewFileName.toLowerCase().endsWith(
-          '.$extension'.toLowerCase(),
-        )) {
-          cleanNewFileName = cleanNewFileName.substring(
-            0,
-            cleanNewFileName.length - extension.length - 1,
-          );
-        }
-
-        final newPath = '${directory.path}/$cleanNewFileName.$extension';
+        final newPath =
+            '${directory.path}/${fileNameController.text.trim()}.$extension';
         workingFile = File(newPath);
       }
 
-      // Preparar artwork - preservar el existente si no hay uno nuevo
-      List<Picture> pictures = [];
-      if (_newArtworkBytes != null) {
-        pictures.add(
-          Picture(
-            bytes: _newArtworkBytes!,
-            mimeType: MimeType.jpeg,
-            pictureType: PictureType.other,
-          ),
-        );
-      } else if (_newArtworkPath != null) {
-        final file = File(_newArtworkPath!);
-        final bytes = await file.readAsBytes();
-        pictures.add(
-          Picture(
-            bytes: bytes,
-            mimeType: MimeType.jpeg,
-            pictureType: PictureType.other,
-          ),
-        );
-      } else {
-        // Preservar artwork existente si no se ha cambiado
-        try {
-          final existingMetadata = await MetadataRetriever.fromFile(
-            workingFile,
-          );
-          if (existingMetadata.albumArt?.isNotEmpty == true) {
-            pictures.add(
-              Picture(
-                bytes: existingMetadata.albumArt!,
-                mimeType: MimeType.jpeg,
-                pictureType: PictureType.other,
-              ),
-            );
-          }
-        } catch (e) {
-          debugPrint('Error preserving existing artwork: $e');
-        }
-      }
-
-      // Crear el tag con los nuevos valores, preservando los existentes cuando los campos están vacíos
-      final tag = Tag(
-        title: titleController.text.trim().isEmpty
-            ? (widget.audioFile.title != 'Unknown' &&
-                      widget.audioFile.title.isNotEmpty
-                  ? widget.audioFile.title
-                  : null)
-            : titleController.text.trim(),
-        trackArtist: artistController.text.trim().isEmpty
-            ? (widget.audioFile.artist != 'Unknown Artist' &&
-                      widget.audioFile.artist.isNotEmpty
-                  ? widget.audioFile.artist
-                  : null)
-            : artistController.text.trim(),
-        album: albumController.text.trim().isEmpty
-            ? (widget.audioFile.album != 'Unknown Album' &&
-                      widget.audioFile.album.isNotEmpty
-                  ? widget.audioFile.album
-                  : null)
-            : albumController.text.trim(),
-        albumArtist: albumArtistController.text.trim().isEmpty
-            ? _getMetadataValue('albumArtist')
-            : albumArtistController.text.trim(),
-        year: _getYearFromExtras(),
-        genre: _getGenreFromExtras(),
-        trackNumber: _getTrackNumberFromExtras(),
-        lyrics: lyricsController.text.trim().isEmpty
-            ? _getMetadataValue('lyrics')
-            : lyricsController.text.trim(),
-        pictures: pictures,
-      );
-
-      // Escribir los metadatos al archivo (ahora con el nombre correcto)
-      await AudioTags.write(workingFile.path, tag);
-
-      // Actualizar el estado en el bloc
+      // Crear los metadatos actualizados
       final Map<String, dynamic> updatedExtras = Map.from(
         widget.audioFile.metadata?.extras ?? {},
       );
 
-      // Agregar metadatos estándar a extras - preservar existentes si están vacíos
+      // Actualizar metadatos estándar
       if (yearController.text.trim().isNotEmpty) {
         updatedExtras['year'] = yearController.text.trim();
-      } else if (_getMetadataValue('year') != null) {
-        updatedExtras['year'] = _getMetadataValue('year')!;
       }
-
       if (genreController.text.trim().isNotEmpty) {
         updatedExtras['genre'] = genreController.text.trim();
-      } else if (_getMetadataValue('genre') != null) {
-        updatedExtras['genre'] = _getMetadataValue('genre')!;
       }
-
       if (trackNumberController.text.trim().isNotEmpty) {
         updatedExtras['track'] = trackNumberController.text.trim();
-      } else if (_getMetadataValue('track') != null) {
-        updatedExtras['track'] = _getMetadataValue('track')!;
       }
-
       if (albumArtistController.text.trim().isNotEmpty) {
         updatedExtras['albumArtist'] = albumArtistController.text.trim();
-      } else if (_getMetadataValue('albumArtist') != null) {
-        updatedExtras['albumArtist'] = _getMetadataValue('albumArtist')!;
       }
-
       if (composerController.text.trim().isNotEmpty) {
         updatedExtras['composer'] = composerController.text.trim();
-      } else if (_getMetadataValue('composer') != null) {
-        updatedExtras['composer'] = _getMetadataValue('composer')!;
       }
-
       if (lyricsController.text.trim().isNotEmpty) {
         updatedExtras['lyrics'] = lyricsController.text.trim();
-      } else if (_getMetadataValue('lyrics') != null) {
-        updatedExtras['lyrics'] = _getMetadataValue('lyrics')!;
       }
 
-      // Agregar metadatos personalizados
+      // Agregar metadatos personalizados y extra
       for (final entry in customControllers.entries) {
         if (entry.value.text.trim().isNotEmpty) {
           updatedExtras[entry.key] = entry.value.text.trim();
         }
       }
-
-      // Agregar metadatos extra existentes
       for (final entry in extraControllers.entries) {
         if (entry.value.text.trim().isNotEmpty) {
           updatedExtras[entry.key] = entry.value.text.trim();
         }
       }
 
-      final updatedMetadata = MediaItem(
-        id: workingFile.path, // Usar la ruta actualizada
-        title: titleController.text.trim().isEmpty
-            ? (widget.audioFile.title != 'Unknown' &&
-                      widget.audioFile.title.isNotEmpty
-                  ? widget.audioFile.title
-                  : (newFileName.isNotEmpty
-                        ? newFileName
-                        : widget.audioFile.fileName))
-            : titleController.text.trim(),
-        artist: artistController.text.trim().isEmpty
-            ? (widget.audioFile.artist != 'Unknown Artist' &&
-                      widget.audioFile.artist.isNotEmpty
-                  ? widget.audioFile.artist
-                  : 'Unknown Artist')
-            : artistController.text.trim(),
-        album: albumController.text.trim().isEmpty
-            ? (widget.audioFile.album != 'Unknown Album' &&
-                      widget.audioFile.album.isNotEmpty
-                  ? widget.audioFile.album
-                  : 'Unknown Album')
-            : albumController.text.trim(),
+      // Crear el MediaItem actualizado
+      String? newArtworkPath = widget.audioFile.metadata?.artUri?.toString();
+
+      // Si se seleccionó nuevo artwork, guardarlo como archivo
+      if (_newArtworkBytes != null) {
+        try {
+          final artworkDir = Directory('${workingFile.parent.path}/.artwork');
+          if (!await artworkDir.exists()) {
+            await artworkDir.create();
+          }
+
+          final fileName = workingFile.path.split('/').last.split('.').first;
+          final artworkFile = File(
+            '${artworkDir.path}/${fileName}_artwork.jpg',
+          );
+          await artworkFile.writeAsBytes(_newArtworkBytes!);
+          newArtworkPath = artworkFile.path;
+          debugPrint('Artwork guardado en: $newArtworkPath');
+        } catch (e) {
+          debugPrint('Error guardando artwork: $e');
+          // Continuar sin artwork si hay error
+        }
+      } else if (_newArtworkPath != null) {
+        newArtworkPath = _newArtworkPath;
+      }
+
+      final updatedMetadata = audio_service.MediaItem(
+        id: workingFile.path,
+        title: titleController.text.trim().isNotEmpty
+            ? titleController.text.trim()
+            : widget.audioFile.title,
+        artist: artistController.text.trim().isNotEmpty
+            ? artistController.text.trim()
+            : widget.audioFile.artist,
+        album: albumController.text.trim().isNotEmpty
+            ? albumController.text.trim()
+            : widget.audioFile.album,
         duration: widget.audioFile.duration,
-        artUri: widget.audioFile.metadata?.artUri,
+        artUri: newArtworkPath != null
+            ? Uri.file(newArtworkPath)
+            : widget.audioFile.metadata?.artUri,
         extras: updatedExtras,
       );
 
-      // Enviar evento al bloc para actualizar los metadatos
+      // Escribir metadatos al archivo usando el servicio robusto
+      bool metadataWritten = false;
+      try {
+        // Preparar metadatos personalizados
+        final Map<String, String> customMeta = {};
+        for (final entry in customControllers.entries) {
+          if (entry.value.text.trim().isNotEmpty) {
+            customMeta[entry.key] = entry.value.text.trim();
+          }
+        }
+        for (final entry in extraControllers.entries) {
+          if (entry.value.text.trim().isNotEmpty) {
+            customMeta[entry.key] = entry.value.text.trim();
+          }
+        }
+
+        metadataWritten = await MetadataWriterService.writeMetadata(
+          audioFile: workingFile,
+          title: titleController.text.trim().isNotEmpty
+              ? titleController.text.trim()
+              : null,
+          artist: artistController.text.trim().isNotEmpty
+              ? artistController.text.trim()
+              : null,
+          album: albumController.text.trim().isNotEmpty
+              ? albumController.text.trim()
+              : null,
+          albumArtist: albumArtistController.text.trim().isNotEmpty
+              ? albumArtistController.text.trim()
+              : null,
+          genre: genreController.text.trim().isNotEmpty
+              ? genreController.text.trim()
+              : null,
+          year: yearController.text.trim().isNotEmpty
+              ? yearController.text.trim()
+              : null,
+          trackNumber: trackNumberController.text.trim().isNotEmpty
+              ? trackNumberController.text.trim()
+              : null,
+          composer: composerController.text.trim().isNotEmpty
+              ? composerController.text.trim()
+              : null,
+          lyrics: lyricsController.text.trim().isNotEmpty
+              ? lyricsController.text.trim()
+              : null,
+          artworkBytes:
+              _newArtworkBytes, // Incluir artwork si se seleccionó uno nuevo
+          customMetadata: customMeta.isNotEmpty ? customMeta : null,
+        );
+
+        if (metadataWritten) {
+          debugPrint('Metadatos escritos exitosamente al archivo');
+        } else {
+          debugPrint(
+            'No se pudieron escribir metadatos al archivo - continuando con actualización en memoria',
+          );
+        }
+      } catch (e) {
+        debugPrint('Error escribiendo metadatos al archivo: $e');
+        // Continuar con actualización en memoria aunque falle la escritura
+      }
+
+      // Notificar al bloc sobre los cambios
       if (mounted) {
         try {
-          // Intentar acceder al DirectoryBloc
           context.read<DirectoryBloc>().add(
             UpdateMetadataForFile(workingFile.path, updatedMetadata),
           );
         } catch (e) {
-          // Si no se puede acceder al DirectoryBloc, solo log el error
-          debugPrint('DirectoryBloc no encontrado: $e');
+          debugPrint('Error notificando al DirectoryBloc: $e');
         }
 
-        // Mostrar mensaje de éxito
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Cambios guardados exitosamente'),
-            backgroundColor: Colors.green,
+          SnackBar(
+            content: Text(
+              metadataWritten
+                  ? 'Metadatos actualizados exitosamente (archivo y memoria)'
+                  : 'Metadatos actualizados en la aplicación (archivo no modificado)',
+            ),
+            backgroundColor: metadataWritten ? Colors.green : Colors.orange,
           ),
         );
-
-        Navigator.pop(context);
+        Navigator.of(context).pop(true);
       }
     } catch (e) {
       debugPrint('Error saving metadata: $e');
@@ -706,39 +685,6 @@ class _EditMetadataDialogState extends State<EditMetadataDialog> {
     }
   }
 
-  // Métodos helper para extraer metadatos extra de los controladores
-  int? _getYearFromExtras() {
-    if (yearController.text.trim().isNotEmpty) {
-      return int.tryParse(yearController.text.trim());
-    }
-    // Preservar valor existente si el campo está vacío
-    final existing = _getMetadataValue('year');
-    if (existing != null) {
-      return int.tryParse(existing);
-    }
-    return null;
-  }
-
-  String? _getGenreFromExtras() {
-    if (genreController.text.trim().isNotEmpty) {
-      return genreController.text.trim();
-    }
-    // Preservar valor existente si el campo está vacío
-    return _getMetadataValue('genre');
-  }
-
-  int? _getTrackNumberFromExtras() {
-    if (trackNumberController.text.trim().isNotEmpty) {
-      return int.tryParse(trackNumberController.text.trim());
-    }
-    // Preservar valor existente si el campo está vacío
-    final existing = _getMetadataValue('track');
-    if (existing != null) {
-      return int.tryParse(existing);
-    }
-    return null;
-  }
-
   // Métodos helper para obtener valores de metadatos
   String? _getMetadataValue(String key) {
     return widget.audioFile.metadata?.extras?[key]?.toString();
@@ -781,5 +727,82 @@ class _EditMetadataDialogState extends State<EditMetadataDialog> {
       customControllers[key]?.dispose();
       customControllers.remove(key);
     });
+  }
+
+  /// Mostrar información sobre el servicio de metadatos
+  void _showMetadataServiceInfo() async {
+    final availableMethod = await MetadataWriterService.getAvailableMethod();
+
+    if (!mounted) return;
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.info, color: Colors.blue),
+            SizedBox(width: 8),
+            Text('Información del servicio'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Método disponible: $availableMethod'),
+            const SizedBox(height: 16),
+            if (availableMethod == 'ffmpeg') ...[
+              const Row(
+                children: [
+                  Icon(Icons.check_circle, color: Colors.green),
+                  SizedBox(width: 8),
+                  Text('FFmpeg disponible'),
+                ],
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Los metadatos se escribirán directamente al archivo.',
+              ),
+            ] else if (availableMethod == 'ninguno disponible') ...[
+              const Row(
+                children: [
+                  Icon(Icons.warning, color: Colors.orange),
+                  SizedBox(width: 8),
+                  Text('Solo memoria'),
+                ],
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Los metadatos solo se actualizarán en la aplicación.',
+              ),
+              const SizedBox(height: 16),
+              const Text('Para escribir metadatos al archivo:'),
+              const SizedBox(height: 8),
+              if (Platform.isLinux) ...[
+                const Text('• Linux: sudo apt install ffmpeg'),
+              ] else if (Platform.isWindows) ...[
+                const Text('• Windows: Descarga ffmpeg de ffmpeg.org'),
+              ] else if (Platform.isMacOS) ...[
+                const Text('• macOS: brew install ffmpeg'),
+              ],
+            ] else ...[
+              Row(
+                children: [
+                  const Icon(Icons.info, color: Colors.blue),
+                  const SizedBox(width: 8),
+                  Text(availableMethod),
+                ],
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Entendido'),
+          ),
+        ],
+      ),
+    );
   }
 }

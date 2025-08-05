@@ -4,8 +4,6 @@
 
 list(APPEND FLUTTER_PLUGIN_LIST
   audioplayers_windows
-  audiotags
-  flutter_media_metadata
   permission_handler_windows
 )
 

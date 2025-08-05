@@ -1,26 +1,58 @@
 import 'package:flutter/material.dart';
+import 'dart:io';
+import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'core/di/service_locator.dart';
 import 'presentation/pages/home_page.dart';
 
 void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
+  // Manejo global de errores verboso
+  FlutterError.onError = (FlutterErrorDetails details) {
+    debugPrint('FLUTTER ERROR: ${details.exception}');
+    debugPrint('STACKTRACE: ${details.stack}');
+    FlutterError.presentError(details);
+  };
 
-  // Setup dependency injection (now async)
-  await setupServiceLocator();
-
-  // Request storage permissions
-  await _requestPermissions();
-
-  runApp(const LanifyApp());
+  runZonedGuarded(
+    () async {
+      WidgetsFlutterBinding.ensureInitialized();
+      await setupServiceLocator();
+      await _requestPermissions();
+      runApp(const LanifyApp());
+    },
+    (error, stack) {
+      debugPrint('ZONE ERROR: $error');
+      debugPrint('STACKTRACE: $stack');
+    },
+  );
 }
 
 Future<void> _requestPermissions() async {
-  if (await Permission.storage.isDenied) {
-    await Permission.storage.request();
-  }
-  if (await Permission.manageExternalStorage.isDenied) {
-    await Permission.manageExternalStorage.request();
+  try {
+    // Solo pedir permisos en Android/iOS - Linux no los necesita
+    if (kIsWeb) {
+      debugPrint('Permisos no requeridos en web.');
+      return;
+    }
+
+    if (Platform.isLinux || Platform.isWindows || Platform.isMacOS) {
+      debugPrint('Permisos no requeridos en plataformas de escritorio.');
+      return;
+    }
+
+    // Solo para Android/iOS
+    if (Platform.isAndroid) {
+      if (await Permission.storage.isDenied) {
+        await Permission.storage.request();
+      }
+      if (await Permission.manageExternalStorage.isDenied) {
+        await Permission.manageExternalStorage.request();
+      }
+    }
+    // Para iOS se pueden agregar permisos específicos si es necesario
+  } catch (e) {
+    debugPrint('Error al solicitar permisos (ignorado): $e');
   }
 }
 

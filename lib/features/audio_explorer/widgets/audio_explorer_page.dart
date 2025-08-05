@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 
 import '../bloc/directory_bloc.dart';
 import '../bloc/directory_event.dart';
@@ -34,19 +35,40 @@ class AudioExplorerPage extends StatelessWidget {
 class AudioExplorerView extends StatelessWidget {
   const AudioExplorerView({super.key});
 
+  void _selectFile(BuildContext context) async {
+    try {
+      FilePickerResult? result = await FilePicker.platform.pickFiles();
+      if (result != null && result.files.isNotEmpty) {
+        final file = result.files.first;
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Archivo seleccionado: ${file.name}')),
+          );
+        }
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error al seleccionar archivo: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Row(
-          children: const [
-            Expanded(child: DirectoryNavigationBar()),
-          ],
-        ),
+        title: Row(children: const [Expanded(child: DirectoryNavigationBar())]),
         actions: [
+          // Show file picker on web, directory picker on other platforms
           IconButton(
-            icon: const Icon(Icons.folder_open),
-            onPressed: () => _selectDirectory(context),
+            icon: Icon(kIsWeb ? Icons.upload_file : Icons.folder_open),
+            onPressed: () =>
+                kIsWeb ? _selectFile(context) : _selectDirectory(context),
           ),
           IconButton(
             icon: const Icon(Icons.info_outline),
@@ -116,7 +138,6 @@ class AudioExplorerView extends StatelessWidget {
   void _selectDirectory(BuildContext context) async {
     try {
       String? selectedDirectory = await FilePicker.platform.getDirectoryPath();
-
       if (selectedDirectory != null) {
         if (context.mounted) {
           context.read<DirectoryBloc>().add(LoadDirectory(selectedDirectory));
@@ -124,11 +145,15 @@ class AudioExplorerView extends StatelessWidget {
       }
     } catch (e) {
       if (context.mounted) {
+        final isUnimplemented =
+            e.toString().contains('UnimplementedError') ||
+            e.toString().contains('has not been implemented');
+        final errorMsg = isUnimplemented
+            ? 'Seleccionar directorio no está disponible en esta plataforma.'
+            : 'Error al seleccionar directorio: $e';
+        debugPrint(errorMsg);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error al seleccionar directorio: $e'),
-            backgroundColor: Colors.red,
-          ),
+          SnackBar(content: Text(errorMsg), backgroundColor: Colors.red),
         );
       }
     }

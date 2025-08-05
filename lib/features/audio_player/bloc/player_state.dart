@@ -1,10 +1,10 @@
 import 'package:equatable/equatable.dart';
-import 'package:audio_service/audio_service.dart';
+import '../../audio_explorer/models/audio_file_item.dart';
 
 /// Estado del reproductor de audio
 class PlayerState extends Equatable {
-  final MediaItem? currentMediaItem;
-  final List<MediaItem> playlist;
+  final AudioFileItem? currentAudioFile;
+  final List<AudioFileItem> playlist;
   final int currentIndex;
   final bool isPlaying;
   final bool isLoading;
@@ -13,7 +13,7 @@ class PlayerState extends Equatable {
   final String? error;
 
   const PlayerState({
-    this.currentMediaItem,
+    this.currentAudioFile,
     this.playlist = const [],
     this.currentIndex = -1,
     this.isPlaying = false,
@@ -24,8 +24,8 @@ class PlayerState extends Equatable {
   });
 
   PlayerState copyWith({
-    MediaItem? currentMediaItem,
-    List<MediaItem>? playlist,
+    AudioFileItem? currentAudioFile,
+    List<AudioFileItem>? playlist,
     int? currentIndex,
     bool? isPlaying,
     bool? isLoading,
@@ -34,7 +34,7 @@ class PlayerState extends Equatable {
     String? error,
   }) {
     return PlayerState(
-      currentMediaItem: currentMediaItem ?? this.currentMediaItem,
+      currentAudioFile: currentAudioFile ?? this.currentAudioFile,
       playlist: playlist ?? this.playlist,
       currentIndex: currentIndex ?? this.currentIndex,
       isPlaying: isPlaying ?? this.isPlaying,
@@ -51,7 +51,7 @@ class PlayerState extends Equatable {
 
   @override
   List<Object?> get props => [
-    currentMediaItem,
+    currentAudioFile,
     playlist,
     currentIndex,
     isPlaying,

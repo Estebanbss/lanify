@@ -1,5 +1,5 @@
 import 'package:equatable/equatable.dart';
-import 'package:audio_service/audio_service.dart';
+import '../../audio_explorer/models/audio_file_item.dart';
 
 /// Eventos del reproductor de audio
 abstract class PlayerEvent extends Equatable {
@@ -11,16 +11,13 @@ abstract class PlayerEvent extends Equatable {
 
 /// Reproducir archivo específico
 class PlayAudio extends PlayerEvent {
-  final MediaItem mediaItem;
-  final List<MediaItem> playlist;
+  final AudioFileItem audioFile;
+  final List<AudioFileItem> playlist;
 
-  const PlayAudio({
-    required this.mediaItem,
-    required this.playlist,
-  });
+  const PlayAudio({required this.audioFile, required this.playlist});
 
   @override
-  List<Object?> get props => [mediaItem, playlist];
+  List<Object?> get props => [audioFile, playlist];
 }
 
 /// Pausar/reanudar reproducción
@@ -55,7 +52,7 @@ class SeekTo extends PlayerEvent {
 
 /// Actualizar playlist
 class UpdatePlaylist extends PlayerEvent {
-  final List<MediaItem> playlist;
+  final List<AudioFileItem> playlist;
 
   const UpdatePlaylist(this.playlist);
 
@@ -78,7 +75,12 @@ class UpdatePlayerState extends PlayerEvent {
   });
 
   @override
-  List<Object?> get props => [isPlaying, isLoading, currentPosition, totalDuration];
+  List<Object?> get props => [
+    isPlaying,
+    isLoading,
+    currentPosition,
+    totalDuration,
+  ];
 }
 
 /// Manejar fin de track

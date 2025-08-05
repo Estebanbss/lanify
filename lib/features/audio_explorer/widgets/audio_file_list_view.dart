@@ -21,10 +21,18 @@ class AudioFileListView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return BlocBuilder<DirectoryBloc, DirectoryState>(
+      // Solo rebuilds para cambios estructurales (no para metadata individual)
+      buildWhen: (previous, current) {
+        return previous.directories.length != current.directories.length ||
+            previous.audioFiles.length != current.audioFiles.length ||
+            previous.isGroupedByArtist != current.isGroupedByArtist ||
+            previous.searchFilter != current.searchFilter ||
+            previous.isLoading != current.isLoading ||
+            previous.error != current.error;
+      },
       builder: (context, state) {
         final filteredDirectories = state.filteredDirectories;
         final filteredAudioFiles = state.filteredAudioFiles;
-
         if (filteredDirectories.isEmpty && filteredAudioFiles.isEmpty) {
           return const Center(
             child: Column(
@@ -69,10 +77,10 @@ class AudioFileListView extends StatelessWidget {
           final directory = directories[index];
           return _buildDirectoryTile(context, directory);
         } else {
-          // Mostrar archivo de audio
+          // Mostrar archivo de audio con BlocBuilder individual
           final audioIndex = index - directories.length;
           final audioFile = audioFiles[audioIndex];
-          return _buildAudioFileTile(context, audioFile, audioFiles);
+          return AudioFileTile(audioFile: audioFile, playlist: audioFiles);
         }
       },
     );
@@ -101,10 +109,9 @@ class AudioFileListView extends StatelessWidget {
             subtitle: Text('${files.length} canciones'),
             children: files
                 .map(
-                  (file) => _buildAudioFileTile(
-                    context,
-                    file,
-                    state.filteredAudioFiles,
+                  (file) => AudioFileTile(
+                    audioFile: file,
+                    playlist: state.filteredAudioFiles,
                   ),
                 )
                 .toList(),
@@ -125,61 +132,190 @@ class AudioFileListView extends StatelessWidget {
       },
     );
   }
+}
 
-  Widget _buildAudioFileTile(
-    BuildContext context,
-    AudioFileItem audioFile,
-    List<AudioFileItem> playlist,
-  ) {
-    return BlocBuilder<PlayerBloc, player_state.PlayerState>(
-      builder: (context, playerState) {
-        final isCurrentlyPlaying =
-            playerState.currentMediaItem?.id == audioFile.file.path;
-        final isLoading = isCurrentlyPlaying && playerState.isLoading;
+void _playAudio(
+  BuildContext context,
+  AudioFileItem audioFile,
+  List<AudioFileItem> playlist,
+) {
+  // Usar AudioFileItem directamente, sin conversión
+  context.read<PlayerBloc>().add(
+    PlayAudio(audioFile: audioFile, playlist: playlist),
+  );
 
-        return ListTile(
-          leading: _buildLeadingIcon(
-            context,
-            isCurrentlyPlaying,
-            isLoading,
-            playerState.isPlaying,
-            audioFile,
+  // Actualizar el estado en DirectoryBloc
+  context.read<DirectoryBloc>().add(SetCurrentlyPlaying(audioFile.file.path));
+}
+
+void _showAudioFileMenu(BuildContext context, AudioFileItem audioFile) {
+  showModalBottomSheet(
+    context: context,
+    builder: (bottomSheetContext) => BlocProvider.value(
+      value: context.read<DirectoryBloc>(),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ListTile(
+            leading: const Icon(Icons.info),
+            title: const Text('Información del archivo'),
+            onTap: () {
+              Navigator.pop(bottomSheetContext);
+              _showFileInfo(context, audioFile);
+            },
           ),
-          title: Text(
-            audioFile.title,
-            style: TextStyle(
-              fontWeight: isCurrentlyPlaying
-                  ? FontWeight.bold
-                  : FontWeight.normal,
-            ),
+          ListTile(
+            leading: const Icon(Icons.edit),
+            title: const Text('Edit Song'),
+            onTap: () {
+              Navigator.pop(bottomSheetContext);
+              _showEditMetadata(context, audioFile);
+            },
           ),
-          subtitle: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(audioFile.artist),
-              if (audioFile.album.isNotEmpty)
-                Text(
-                  audioFile.album,
-                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                ),
-            ],
-          ),
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (audioFile.duration > Duration.zero)
-                Text(
-                  DurationUtils.formatDuration(audioFile.duration),
-                  style: TextStyle(color: Colors.grey[600], fontSize: 12),
-                ),
-              const SizedBox(width: 8),
-              IconButton(
-                icon: const Icon(Icons.more_vert),
-                onPressed: () => _showAudioFileMenu(context, audioFile),
+        ],
+      ),
+    ),
+  );
+}
+
+void _showFileInfo(BuildContext context, AudioFileItem audioFile) {
+  showDialog(
+    context: context,
+    builder: (context) => FileInfoDialog(
+      title: audioFile.title,
+      artist: audioFile.artist,
+      album: audioFile.album,
+      fileName: audioFile.fileName,
+      duration: audioFile.duration,
+      fileSize: audioFile.metadata?.extras?['fileSize'] as int?,
+      artworkPath: audioFile.effectiveArtworkPath,
+      extras: audioFile.metadata?.extras,
+    ),
+  );
+}
+
+void _showEditMetadata(BuildContext context, AudioFileItem audioFile) {
+  showDialog(
+    context: context,
+    builder: (dialogContext) => BlocProvider.value(
+      value: context.read<DirectoryBloc>(),
+      child: EditMetadataDialog(audioFile: audioFile),
+    ),
+  );
+}
+
+/// Widget individual para cada audio file con su propio BlocBuilder
+class AudioFileTile extends StatelessWidget {
+  final AudioFileItem audioFile;
+  final List<AudioFileItem> playlist;
+
+  const AudioFileTile({
+    super.key,
+    required this.audioFile,
+    required this.playlist,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocBuilder<DirectoryBloc, DirectoryState>(
+      // Solo rebuild si cambian los metadatos de ESTE archivo específico
+      buildWhen: (previous, current) {
+        final prevFile = previous.audioFiles.cast<AudioFileItem?>().firstWhere(
+          (f) => f?.file.path == audioFile.file.path,
+          orElse: () => null,
+        );
+        final currFile = current.audioFiles.cast<AudioFileItem?>().firstWhere(
+          (f) => f?.file.path == audioFile.file.path,
+          orElse: () => null,
+        );
+
+        if (prevFile == null || currFile == null) return true;
+
+        // Solo rebuild si cambió la metadata de ESTE archivo
+        return prevFile.title != currFile.title ||
+            prevFile.artist != currFile.artist ||
+            prevFile.album != currFile.album ||
+            prevFile.artworkPath != currFile.artworkPath ||
+            prevFile.duration != currFile.duration;
+      },
+      builder: (context, directoryState) {
+        // Obtener la versión más actualizada del archivo
+        final updatedFile =
+            directoryState.audioFiles.cast<AudioFileItem?>().firstWhere(
+              (f) => f?.file.path == audioFile.file.path,
+              orElse: () => audioFile,
+            ) ??
+            audioFile;
+
+        return BlocBuilder<PlayerBloc, player_state.PlayerState>(
+          // Solo rebuild si cambia el estado de reproducción de ESTE archivo
+          buildWhen: (previous, current) {
+            final prevIsPlaying =
+                previous.currentAudioFile?.file.path == audioFile.file.path;
+            final currIsPlaying =
+                current.currentAudioFile?.file.path == audioFile.file.path;
+
+            // Rebuild si este archivo cambió su estado de reproducción
+            if (prevIsPlaying != currIsPlaying) return true;
+
+            // Si es el archivo actual, rebuild si cambió isPlaying o isLoading
+            if (currIsPlaying) {
+              return previous.isPlaying != current.isPlaying ||
+                  previous.isLoading != current.isLoading;
+            }
+
+            return false;
+          },
+          builder: (context, playerState) {
+            final isCurrentlyPlaying =
+                playerState.currentAudioFile?.file.path == audioFile.file.path;
+            final isLoading = isCurrentlyPlaying && playerState.isLoading;
+
+            return ListTile(
+              leading: _buildLeadingIcon(
+                context,
+                isCurrentlyPlaying,
+                isLoading,
+                playerState.isPlaying,
+                updatedFile,
               ),
-            ],
-          ),
-          onTap: () => _playAudio(context, audioFile, playlist),
+              title: Text(
+                updatedFile.title,
+                style: TextStyle(
+                  fontWeight: isCurrentlyPlaying
+                      ? FontWeight.bold
+                      : FontWeight.normal,
+                ),
+              ),
+              subtitle: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(updatedFile.artist),
+                  if (updatedFile.album.isNotEmpty)
+                    Text(
+                      updatedFile.album,
+                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                    ),
+                ],
+              ),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (updatedFile.duration > Duration.zero)
+                    Text(
+                      DurationUtils.formatDuration(updatedFile.duration),
+                      style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                    ),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    icon: const Icon(Icons.more_vert),
+                    onPressed: () => _showAudioFileMenu(context, updatedFile),
+                  ),
+                ],
+              ),
+              onTap: () => _playAudio(context, updatedFile, playlist),
+            );
+          },
         );
       },
     );
@@ -306,77 +442,4 @@ class AudioFileListView extends StatelessWidget {
       ),
     );
   }
-}
-
-void _playAudio(
-  BuildContext context,
-  AudioFileItem audioFile,
-  List<AudioFileItem> playlist,
-) {
-  // Convertir a MediaItems para el player
-  final mediaItems = playlist.map((file) => file.toMediaItem()).toList();
-  final mediaItem = audioFile.toMediaItem();
-
-  context.read<PlayerBloc>().add(
-    PlayAudio(mediaItem: mediaItem, playlist: mediaItems),
-  );
-
-  // Actualizar el estado en DirectoryBloc
-  context.read<DirectoryBloc>().add(SetCurrentlyPlaying(audioFile.file.path));
-}
-
-void _showAudioFileMenu(BuildContext context, AudioFileItem audioFile) {
-  showModalBottomSheet(
-    context: context,
-    builder: (bottomSheetContext) => BlocProvider.value(
-      value: context.read<DirectoryBloc>(),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          ListTile(
-            leading: const Icon(Icons.info),
-            title: const Text('Información del archivo'),
-            onTap: () {
-              Navigator.pop(bottomSheetContext);
-              _showFileInfo(context, audioFile);
-            },
-          ),
-          ListTile(
-            leading: const Icon(Icons.edit),
-            title: const Text('Edit Song'),
-            onTap: () {
-              Navigator.pop(bottomSheetContext);
-              _showEditMetadata(context, audioFile);
-            },
-          ),
-        ],
-      ),
-    ),
-  );
-}
-
-void _showFileInfo(BuildContext context, AudioFileItem audioFile) {
-  showDialog(
-    context: context,
-    builder: (context) => FileInfoDialog(
-      title: audioFile.title,
-      artist: audioFile.artist,
-      album: audioFile.album,
-      fileName: audioFile.fileName,
-      duration: audioFile.duration,
-      fileSize: audioFile.metadata?.extras?['fileSize'] as int?,
-      artworkPath: audioFile.effectiveArtworkPath,
-      extras: audioFile.metadata?.extras,
-    ),
-  );
-}
-
-void _showEditMetadata(BuildContext context, AudioFileItem audioFile) {
-  showDialog(
-    context: context,
-    builder: (dialogContext) => BlocProvider.value(
-      value: context.read<DirectoryBloc>(),
-      child: EditMetadataDialog(audioFile: audioFile),
-    ),
-  );
 }

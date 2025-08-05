@@ -136,11 +136,27 @@ class DirectoryBloc extends Bloc<DirectoryEvent, DirectoryState> {
         String? artworkPath;
         if (event.metadata.artUri != null) {
           try {
-            artworkPath = event.metadata.artUri!.toFilePath();
+            final uri = event.metadata.artUri!;
+            if (uri.isScheme('file')) {
+              artworkPath = uri.toFilePath();
+            } else {
+              // Si no es un URI file://, usar como string
+              artworkPath = uri.toString();
+            }
           } catch (e) {
             debugPrint('Error extracting artwork path: $e');
+            // Fallback: usar directamente como string
+            artworkPath = event.metadata.artUri.toString();
           }
         }
+
+        debugPrint(
+          'DirectoryBloc: Actualizando metadatos para ${event.filePath}',
+        );
+        debugPrint('  - Título: ${event.metadata.title}');
+        debugPrint('  - Artista: ${event.metadata.artist}');
+        debugPrint('  - Álbum: ${event.metadata.album}');
+        debugPrint('  - ArtworkPath: $artworkPath');
 
         return audioFile.copyWith(
           metadata: event.metadata,
@@ -176,9 +192,11 @@ class DirectoryBloc extends Bloc<DirectoryEvent, DirectoryState> {
             debugPrint(
               'DirectoryBloc: Cambio detectado en directorio: ${event.path}',
             );
-            // Recargar directorio cuando hay cambios
-            Future.delayed(const Duration(milliseconds: 500), () {
-              add(const ReloadCurrentDirectory());
+            // Recargar directorio con debounce más largo para evitar spam
+            Future.delayed(const Duration(seconds: 2), () {
+              if (!isClosed) {
+                add(const ReloadCurrentDirectory());
+              }
             });
           },
           onError: (error) {
@@ -193,18 +211,28 @@ class DirectoryBloc extends Bloc<DirectoryEvent, DirectoryState> {
       'DirectoryBloc: Iniciando carga de metadatos para ${files.length} archivos',
     );
 
+    int metadataCount = 0;
     _metadataSubscription = _metadataService
         .loadMetadataStream(files)
         .listen(
           (metadata) {
-            // Usar evento en lugar de emit directo
-            add(UpdateMetadataForFile(metadata.id, metadata));
+            metadataCount++;
+            debugPrint(
+              '[DEBUG] Metadata recibido #$metadataCount: ${metadata.title}',
+            );
+
+            // Actualizar usando add pero sin crear bucles
+            if (!isClosed) {
+              add(UpdateMetadataForFile(metadata.id, metadata));
+            }
           },
           onError: (error) {
             debugPrint('DirectoryBloc: Error cargando metadatos: $error');
           },
           onDone: () {
-            debugPrint('DirectoryBloc: Carga de metadatos completada');
+            debugPrint(
+              'DirectoryBloc: Carga de metadatos completada. Total procesados: $metadataCount',
+            );
           },
         );
   }

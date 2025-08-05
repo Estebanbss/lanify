@@ -1,11 +1,11 @@
 import 'package:equatable/equatable.dart';
-import 'package:audio_service/audio_service.dart';
+import 'package:audio_service/audio_service.dart' as audio_service;
 import 'dart:io';
 
 /// Modelo que representa un archivo de audio con sus metadatos
 class AudioFileItem extends Equatable {
   final File file;
-  final MediaItem? metadata;
+  final audio_service.MediaItem? metadata;
   final bool isCurrentlyPlaying;
   final String? artworkPath;
 
@@ -32,29 +32,21 @@ class AudioFileItem extends Equatable {
 
     // Luego intentar desde metadata.artUri
     if (metadata?.artUri != null) {
-      return metadata!.artUri!.toFilePath();
+      final uri = metadata!.artUri!;
+      if (uri.isScheme('file')) {
+        return uri.toFilePath();
+      } else {
+        // Si es una URI string, devolverla tal como está
+        return uri.toString();
+      }
     }
 
     return null;
   }
 
-  /// Convierte este AudioFileItem a MediaItem para el player
-  MediaItem toMediaItem() {
-    return MediaItem(
-      id: file.path,
-      title: title,
-      artist: artist,
-      album: album,
-      duration: duration,
-      artUri: effectiveArtworkPath != null
-          ? Uri.file(effectiveArtworkPath!)
-          : metadata?.artUri,
-    );
-  }
-
   AudioFileItem copyWith({
     File? file,
-    MediaItem? metadata,
+    audio_service.MediaItem? metadata,
     bool? isCurrentlyPlaying,
     String? artworkPath,
   }) {
